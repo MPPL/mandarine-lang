@@ -41,6 +41,7 @@ class TOKENS(Enum):
     CODEOPEN    = auto()
     CODECLOSE   = auto()
     NUM         = auto()
+    COUNT       = auto()
 
 class OP(Enum):
     NUM         = auto()
@@ -65,6 +66,7 @@ class DT(Enum):
     COUNT       = auto()
 
 class CB(Enum):
+    COMPILETIME = auto()
     CONDITION   = auto()
     RESOLVE     = auto()
     CODE        = auto()
@@ -74,14 +76,20 @@ class Token:
     type:       TOKENS
     name:       str
 
+@dataclass
+class Var:
+    type: DT
+    name: str
 class codeBlock:
     id:         int = -1
-    type:       CB
+    type:       CB = CB.COMPILETIME
     tokens:     list[Token | typing.Self] = []
+    vars:       list[Var]
 
-    def __init__(self, id = -1, tokens = []):
+    def __init__(self, id = -1, tokens = [], vars = []):
         self.id = id
         self.tokens = tokens
+        self.vars = vars
 
 @dataclass
 class OpType:
@@ -100,9 +108,9 @@ class Error(Enum):
     SIMULATE    = auto()
 
 def error(errorType: int, errorStr: str, exitAfter: bool = True):
-    sys.stderr.write(" >>> " + errorStr + "\n")
+    sys.stderr.write(" >>> " + errorStr + f"{CMDCOL.END}\n")
     if(errorType == Error.CMD):
-        sys.stdout.write(__HELP_STR__ + "\n")
+        sys.stdout.write(__HELP_STR__ + f"{CMDCOL.END}\n")
     if exitAfter:
         exit(1)
 
@@ -213,6 +221,9 @@ operand_map = {
     "*"     : OP.MUL,
 }
 
+type_map = {
+    "u8"    : DT.UINT8
+}
 
 unprotected_static_token = {
 }
@@ -224,7 +235,6 @@ def resolve_structures(data: list[OpType]) -> list[OpType]:
     while index < len(data):
         pass
     
-
     return ret
 
 def resolve_names(data: list[OpType]) -> list[OpType]:
@@ -298,7 +308,44 @@ def Parse_jump(data: list[OpType]) -> list[OpType]:
         index += 1
     return data
 
+def Secound_token_parse(data: codeBlock, index_offset: int = 0) -> codeBlock:
+
+    if (n:=OP.COUNT.value) != (m:=16):
+        error(Error.ENUM, f"{CMDCOL.BOLD}{CMDCOL.FAIL}Exhaustive operation parsing protection in Secound_token_parse{CMDCOL.END}{CMDCOL.OKAY} >>> expected `{CMDCOL.GOOD}{m}{CMDCOL.OKAY}` | got `{CMDCOL.FAIL}{n}{CMDCOL.OKAY}`")
+    if (n:=CB.COUNT.value) != (m:=5):
+        error(Error.ENUM, f"{CMDCOL.BOLD}{CMDCOL.FAIL}Exhaustive codeblock parsing protection in Secound_token_parse{CMDCOL.END}{CMDCOL.OKAY} >>> expected `{CMDCOL.GOOD}{m}{CMDCOL.OKAY}` | got `{CMDCOL.FAIL}{n}{CMDCOL.OKAY}`")
+    
+    index = 0
+    while index < len(data.tokens):
+        match data.tokens[index].type:
+            case OP.TYPE:
+                if index+1 < len(data.tokens):
+                    if data.tokens[index+1].type == OP.VAR:
+                        if not (n:=Var(data.tokens[index].value, data.tokens[index+1].value)) in data.vars:
+                            data.vars.append(n)
+                            data.tokens.pop(index)
+                            index += 1
+                        else:
+                            error(Error.PARSE, f"var already stated")
+                    else:
+                        error(Error.PARSE, f"no var token after type")
+                else:
+                    error(Error.PARSE, f"type at the end of file")
+            case OP.VAR:
+                if not (n:=data.tokens[index].value) in [x.name for x in data.vars]:
+                    error(Error.PARSE, f"{CMDCOL.FAIL}Variable `{CMDCOL.OKAY}{CMDCOL.LINE}{n}{CMDCOL.END}{CMDCOL.FAIL}` stated without assigment!")
+
+            case CB.CODE | CB.CONDITION | CB.RESOLVE:
+                data.tokens[index].vars = data.vars.copy()
+                data.tokens[index] = Secound_token_parse(data.tokens[index], index)
+        index += 1
+    return data
+        
 def First_token_parse(data: list[Token]) -> codeBlock:
+
+    if (n:=OP.COUNT.value) != (m:=16):
+        error(Error.ENUM, f"{CMDCOL.BOLD}{CMDCOL.FAIL}Exhaustive operation parsing protection in First_token_parse{CMDCOL.END}{CMDCOL.OKAY} >>> expected `{CMDCOL.GOOD}{m}{CMDCOL.OKAY}` | got `{CMDCOL.FAIL}{n}{CMDCOL.OKAY}`")
+
 
     ret: codeBlock = codeBlock(0)
 
@@ -317,9 +364,9 @@ def First_token_parse(data: list[Token]) -> codeBlock:
             case TOKENS.NUM:
                 codeBlock_stack[-1].tokens.append(OpType(OP.NUM, index + index_offset, int(data[index].name)))
             case TOKENS.TYPE:
-                codeBlock_stack[-1].tokens.append(OpType(OP.TYPE, index + index_offset, DT.UINT8))
+                codeBlock_stack[-1].tokens.append(OpType(OP.TYPE, index + index_offset, type_map[data[index].name]))
             case TOKENS.CODEOPEN:
-                codeBlock_stack.append(codeBlock(codeblock_id_index, []))
+                codeBlock_stack.append(codeBlock(codeblock_id_index, [], []))
                 codeblock_id_index += 1
                 index_offset -= 1
             case TOKENS.CODECLOSE:
@@ -331,8 +378,8 @@ def First_token_parse(data: list[Token]) -> codeBlock:
     return codeBlock_stack[-1]
 
 def Parse_token(file_path: str, loc: tuple[int, int], data: str) -> list[Token]:
-    if (n:=OP.COUNT.value) != 16:
-        error(Error.ENUM, f"{CMDCOL.BOLD}{CMDCOL.FAIL}Exhaustive token parsing protection{CMDCOL.END}{CMDCOL.OKAY} >>> expected `{CMDCOL.GOOD}{16}{CMDCOL.OKAY}` | got `{CMDCOL.FAIL}{n}{CMDCOL.OKAY}`")
+    if (n:=TOKENS.COUNT.value) != 8:
+        error(Error.ENUM, f"{CMDCOL.BOLD}{CMDCOL.FAIL}Exhaustive token parsing protection in Parse_token{CMDCOL.END}{CMDCOL.OKAY} >>> expected `{CMDCOL.GOOD}{16}{CMDCOL.OKAY}` | got `{CMDCOL.FAIL}{n}{CMDCOL.OKAY}`")
 
     ret: list[Token] = []
     if data in alone_token:
@@ -359,6 +406,9 @@ def Parse_token(file_path: str, loc: tuple[int, int], data: str) -> list[Token]:
             ret += [Token(TOKENS.NUM, data)]
             data = ""
         if data:
+            print(data)
+            if data[0].isdigit():
+                error(Error.TOKENIZE, f"name token cannot begin with a number")
             ret += [Token(TOKENS.NAME, data)]
             #assert False, "unknown keyword %s" % (data)
     
@@ -389,7 +439,7 @@ def Parse_file(input: str) -> list:
     data = []
     with open(input, 'r') as f:
         data = f.readlines()
-    for x in First_token_parse([op for row, line in enumerate(data) for op in Parse_line(input, row, line)]).tokens:
+    for x in Secound_token_parse(First_token_parse([op for row, line in enumerate(data) for op in Parse_line(input, row, line)])).vars:
         print(x)
     #return Parse_jump(resolve_names([op for row, line in enumerate(data) for op in Parse_line(input, row, line)]))
 
