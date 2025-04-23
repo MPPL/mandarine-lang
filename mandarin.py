@@ -4,7 +4,10 @@ from enum import Enum, auto
 import types
 import typing
 import os
+import glob
 from dataclasses import dataclass
+
+HEAP_SIZE = 64 * 1<<10
 
 __HELP_STR__ ='''
 commandline usage: mandarin.py <[c <input_file> <c_options>]|[s <input_file> <s_options>]>
@@ -20,6 +23,16 @@ commandline usage: mandarin.py <[c <input_file> <c_options>]|[s <input_file> <s_
     
 '''
 
+class CMDCOL:
+    GOOD = '\033[92m'
+    OKAY = '\033[96m'
+    OK = '\033[94m'
+    WARN = '\033[93m'
+    FAIL = '\033[91m'
+    BOLD = '\033[1m'
+    LINE = '\033[4m'
+    END = '\033[0m'
+
 __iota_counter__ = 0
 def iota(reset=False):
     global __iota_counter__
@@ -28,6 +41,11 @@ def iota(reset=False):
     ret = __iota_counter__
     __iota_counter__ += 1
     return ret
+
+
+class PDO(Enum):
+    RAW_INT     = auto()
+    VAR_SET     = auto()
 
 class OP(Enum):
     NUM         = auto()
@@ -53,6 +71,7 @@ class OpType:
     loc : int
     value : typing.Any
     jmp : int = -1
+    sibling : int | None = None
 
 class Error(Enum):
     CMD         = auto()
@@ -64,8 +83,9 @@ class Error(Enum):
 def compile_data(data: list[dict]):
     assert False, "not implemented yet"
 
-def simulate_data(data: list[dict]):
+def simulate_data(data: list[dict], out = sys.stdout):
     assert OP.COUNT.value == 16, "Exhaustive token counter protection"
+    heap = bytearray(HEAP_SIZE)
     stack = []
     overjump = False
     ip = 0
@@ -110,16 +130,16 @@ def simulate_data(data: list[dict]):
                 stack.append(a)
             case OP.PRINT:
                 a = stack.pop()
-                sys.stdout.write(str(a))
+                out.write(str(a))
             case OP.PRINT_NL:
-                sys.stdout.write('\n')
+                out.write('\n')
             case OP.PRINT_AND_NL:
                 a = stack.pop()
-                sys.stdout.write(str(a))
-                sys.stdout.write('\n')
+                out.write(str(a))
+                out.write('\n')
             case OP.PRINT_CHAR:
                 a = stack.pop()
-                sys.stdout.write(chr(int(a)))
+                out.write(chr(int(a)))
             case OP.VAR:
                 assert False, "unreachable %s | ip -> %d" % (x.type.name, ip)
             case OP.SET:
@@ -128,11 +148,12 @@ def simulate_data(data: list[dict]):
                 assert False, "unreachable %s | ip -> %d" % (x.type.name, ip)
         ip += 1
 
-def error(errorType: int, errorStr: str):
+def error(errorType: int, errorStr: str, exitAfter: bool = True):
     sys.stderr.write(" >>> " + errorStr + "\n")
     if(errorType == Error.CMD):
         sys.stdout.write(__HELP_STR__ + "\n")
-    exit(1)
+    if exitAfter:
+        exit(1)
 
 def unpack(arr: list) -> tuple[typing.Any, list]:
     if len(argv) < 1:
@@ -175,7 +196,18 @@ def resolve_names(data: list[OpType]) -> list[OpType]:
                 error(Error.PARSE, "Wrong usage of `=`, found at the end or begining of file")
         index += 1
     return data
-                
+
+
+
+def resolve_structures(data: list[OpType]) -> list[OpType]:
+    ret = []
+
+    index = 0
+    while index < len(data):
+        pass
+    
+
+    return ret
 
 protected_static_token = {
     "."     : OP.PRINT,
@@ -292,29 +324,71 @@ def Parse_file(input: str) -> list:
         data = f.readlines()
     return Parse_jump(resolve_names([op for row, line in enumerate(data) for op in Parse_line(row, line)]))
 
+# ------------------------------------------------------
+# -------------------- TEST SECTION --------------------
+# ------------------------------------------------------
+class dataHolder:
+    data: str = ""
+    def write(self, string):
+        self.data = self.data + string
+    
+    def compare_with_file(self, file_path):
+        data: str = ""
+        with open(file_path, 'r') as f:
+            data = f.read()
+        return data == self.data
+
+def record_test():
+    for x in glob.glob("./tests/*.mand"):
+        with open(x[:-5]+".txt", "w") as f:
+            simulate_data(Parse_file(x), out = f)
+
+def compare_test():
+    for x in glob.glob("./tests/*.mand"):
+        dh: dataHolder = dataHolder()
+        simulate_data(Parse_file(x), out = dh)
+        if not dh.compare_with_file(x[:-5]+".txt"):
+            sys.stderr.write(f"{CMDCOL.LINE}{x}{CMDCOL.END} {CMDCOL.FAIL}Test Failed{CMDCOL.END}\n")
+        else:
+            sys.stdout.write(f"{CMDCOL.LINE}{x}{CMDCOL.END} {CMDCOL.GOOD}Passed{CMDCOL.END}\n")
+
 if __name__ == "__main__":
-    argv = sys.argv[1:]
+    argv: list[str] = sys.argv[1:]
     if len(argv) < 1:
         error(Error.CMD, "No Commandline options provided")
     option, argv = unpack(argv)
-    mode = 0
 
-    if option == 'c':
-        mode = 1
-    elif option == 's':
-        mode = 2
-    else:
-        error(Error.CMD, "Wrong mode provided, expected `c` or `s`, got `%s`!" % (option))
+    match option:
+        case 'c':
+            input_file, argv = unpack(argv)
 
-    input_file, argv = unpack(argv)
+            if not os.path.isfile(input_file):
+                error(Error.CMD, "Wrong file provided, compiller couldn't find file at a `%s` location" % (input_file))
+                data = Parse_file(input_file)
+            
+            compile_data(data)
+        case 's':
+            input_file, argv = unpack(argv)
 
-    if not os.path.isfile(input_file):
-        error(Error.CMD, "Wrong file provided, compiller couldn't find file at a `%s` location" % (input_file))
+            if not os.path.isfile(input_file):
+                error(Error.CMD, "Wrong file provided, compiller couldn't find file at a `%s` location" % (input_file))
+                data = Parse_file(input_file)
+            
+            simulate_data(data)
+        case 't':
+            test_type: str
 
-    data = Parse_file(input_file)
-    if mode == 1:
-        compile_data(data)
-    else:
-        #for x in data:
-            #print(x)
-        simulate_data(data)
+            if len(argv) > 0:
+                test_type, argv = unpack(argv)
+            else:
+                test_type = "compare"
+
+            match test_type:
+                case "record":
+                    record_test()
+                case "compare":
+                    compare_test()
+                case _:
+                    error(Error.CMD, "Wrong test type provided, expected `record` or `compare`, got `%s`!" % (test_type)) 
+        case _:
+            error(Error.CMD, "Wrong mode provided, expected `c` or `s`, got `%s`!" % (option))

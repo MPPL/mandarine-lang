@@ -1,5 +1,5 @@
 10 = loop
 loop while copy : //while loop
-    copy .n
+    copy ..n
     1 -
 end
