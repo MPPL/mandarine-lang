@@ -33,19 +33,14 @@ class CMDCOL:
     LINE = '\033[4m'
     END = '\033[0m'
 
-__iota_counter__ = 0
-def iota(reset=False):
-    global __iota_counter__
-    if reset:
-        __iota_counter__ = 0
-    ret = __iota_counter__
-    __iota_counter__ += 1
-    return ret
-
-
-class PDO(Enum):
-    RAW_INT     = auto()
-    VAR_SET     = auto()
+class TOKENS(Enum):
+    WORD        = auto()
+    OPERAND     = auto()
+    NAME        = auto()
+    TYPE        = auto()
+    CODEOPEN    = auto()
+    CODECLOSE   = auto()
+    NUM         = auto()
 
 class OP(Enum):
     NUM         = auto()
@@ -55,30 +50,61 @@ class OP(Enum):
     MUL         = auto()
     IF          = auto()
     WHILE       = auto()
-    DIACRITIC   = auto()
-    END         = auto()
+    JUMP        = auto()
     COPY        = auto()
     PRINT       = auto()
     PRINT_NL    = auto()
     PRINT_AND_NL= auto()
     PRINT_CHAR  = auto()
     VAR         = auto()
+    TYPE        = auto()
     COUNT       = auto()
+
+class DT(Enum):
+    UINT8       = auto()
+    COUNT       = auto()
+
+class CB(Enum):
+    CONDITION   = auto()
+    RESOLVE     = auto()
+    CODE        = auto()
+    COUNT       = auto()
+@dataclass
+class Token:
+    type:       TOKENS
+    name:       str
+
+class codeBlock:
+    id:         int = -1
+    type:       CB
+    tokens:     list[Token | typing.Self] = []
+
+    def __init__(self, id = -1, tokens = []):
+        self.id = id
+        self.tokens = tokens
 
 @dataclass
 class OpType:
-    type : OP
-    loc : int
-    value : typing.Any
-    jmp : int = -1
-    sibling : int | None = None
+    type:       OP
+    loc:        int
+    value:      typing.Any = None
+    jmp:        int = -1
+    codeblock:  codeBlock = codeBlock()
 
 class Error(Enum):
     CMD         = auto()
+    ENUM        = auto()
     PARSE       = auto()
     TOKENIZE    = auto()
     COMPILE     = auto()
     SIMULATE    = auto()
+
+def error(errorType: int, errorStr: str, exitAfter: bool = True):
+    sys.stderr.write(" >>> " + errorStr + "\n")
+    if(errorType == Error.CMD):
+        sys.stdout.write(__HELP_STR__ + "\n")
+    if exitAfter:
+        exit(1)
 
 def compile_data(data: list[dict]):
     assert False, "not implemented yet"
@@ -140,25 +166,66 @@ def simulate_data(data: list[dict], out = sys.stdout):
             case OP.PRINT_CHAR:
                 a = stack.pop()
                 out.write(chr(int(a)))
-            case OP.VAR:
-                assert False, "unreachable %s | ip -> %d" % (x.type.name, ip)
-            case OP.SET:
+            case OP.VAR | OP.SET | OP.UINT8:
                 assert False, "unreachable %s | ip -> %d" % (x.type.name, ip)
             case _:
                 assert False, "unreachable %s | ip -> %d" % (x.type.name, ip)
         ip += 1
 
-def error(errorType: int, errorStr: str, exitAfter: bool = True):
-    sys.stderr.write(" >>> " + errorStr + "\n")
-    if(errorType == Error.CMD):
-        sys.stdout.write(__HELP_STR__ + "\n")
-    if exitAfter:
-        exit(1)
-
 def unpack(arr: list) -> tuple[typing.Any, list]:
     if len(argv) < 1:
         error(Error.CMD, "Not enough arguments!")
     return (arr[0], arr[1:])
+
+alone_token = {
+    "."     : TOKENS.WORD,
+    ".n"    : TOKENS.WORD,
+    "..n"   : TOKENS.WORD,
+    ".c"    : TOKENS.WORD,
+}
+
+indifferent_token = {
+    "if"    : TOKENS.WORD,
+    "while" : TOKENS.WORD,
+    "copy"  : TOKENS.WORD,
+    "u8"    : TOKENS.TYPE,
+    "="     : TOKENS.OPERAND,
+    "+"     : TOKENS.OPERAND,
+    "-"     : TOKENS.OPERAND,
+    "*"     : TOKENS.OPERAND,
+    "{"     : TOKENS.CODEOPEN,
+    "("     : TOKENS.CODEOPEN,
+    "}"     : TOKENS.CODECLOSE,
+    ")"     : TOKENS.CODECLOSE,
+}
+
+operand_map = {
+    "."     : OP.PRINT,
+    ".n"    : OP.PRINT_NL,
+    "..n"   : OP.PRINT_AND_NL,
+    ".c"    : OP.PRINT_CHAR,
+    "if"    : OP.IF,
+    "while" : OP.WHILE,
+    "copy"  : OP.COPY,
+    "="     : OP.SET,
+    "+"     : OP.ADD,
+    "-"     : OP.SUB,
+    "*"     : OP.MUL,
+}
+
+
+unprotected_static_token = {
+}
+
+def resolve_structures(data: list[OpType]) -> list[OpType]:
+    ret = []
+
+    index = 0
+    while index < len(data):
+        pass
+    
+
+    return ret
 
 def resolve_names(data: list[OpType]) -> list[OpType]:
     index = 0
@@ -198,39 +265,6 @@ def resolve_names(data: list[OpType]) -> list[OpType]:
     return data
 
 
-
-def resolve_structures(data: list[OpType]) -> list[OpType]:
-    ret = []
-
-    index = 0
-    while index < len(data):
-        pass
-    
-
-    return ret
-
-protected_static_token = {
-    "."     : OP.PRINT,
-    ".n"    : OP.PRINT_NL,
-    "..n"   : OP.PRINT_AND_NL,
-    ".c"    : OP.PRINT_CHAR,
-    "if"    : OP.IF,
-    "while" : OP.WHILE,
-    "end"   : OP.END,
-    "copy"  : OP.COPY,
-}
-
-assisted_static_token = {
-    "="     : OP.SET,
-    "+"     : OP.ADD,
-    "-"     : OP.SUB,
-    "*"     : OP.MUL,
-    ":"     : OP.DIACRITIC,
-}
-
-unprotected_static_token = {
-}
-
 def Parse_jump(data: list[OpType]) -> list[OpType]:
     assert OP.COUNT.value == 16, "Exhaustive token jump parsing protection"
     end_stack = []
@@ -264,65 +298,100 @@ def Parse_jump(data: list[OpType]) -> list[OpType]:
         index += 1
     return data
 
-def Parse_token(loc: tuple[int, int], data: str) -> list[OpType]:
-    assert OP.COUNT.value == 16, "Exhaustive token parsing protection"
+def First_token_parse(data: list[Token]) -> codeBlock:
 
-    ret: list[OpType] = []
+    ret: codeBlock = codeBlock(0)
 
-    if data in protected_static_token:
-        ret += [OpType(protected_static_token[data], loc, data, -1)]
+    codeBlock_stack: list[codeBlock] = [ret]
+    
+    codeblock_id_index = 1
+
+    index_offset = 0
+    index = 0
+    while index < len(data):
+        match data[index].type:
+            case TOKENS.WORD | TOKENS.OPERAND:
+                codeBlock_stack[-1].tokens.append(OpType(operand_map[data[index].name], index + index_offset))
+            case TOKENS.NAME:
+                codeBlock_stack[-1].tokens.append(OpType(OP.VAR, index + index_offset, data[index].name))
+            case TOKENS.NUM:
+                codeBlock_stack[-1].tokens.append(OpType(OP.NUM, index + index_offset, int(data[index].name)))
+            case TOKENS.TYPE:
+                codeBlock_stack[-1].tokens.append(OpType(OP.TYPE, index + index_offset, DT.UINT8))
+            case TOKENS.CODEOPEN:
+                codeBlock_stack.append(codeBlock(codeblock_id_index, []))
+                codeblock_id_index += 1
+                index_offset -= 1
+            case TOKENS.CODECLOSE:
+                codeBlock_stack[-2].tokens.append(codeBlock_stack.pop())
+                index_offset -= 1
+            case _:
+                error(Error.PARSE, "unreachable!")
+        index += 1
+    return codeBlock_stack[-1]
+
+def Parse_token(file_path: str, loc: tuple[int, int], data: str) -> list[Token]:
+    if (n:=OP.COUNT.value) != 16:
+        error(Error.ENUM, f"{CMDCOL.BOLD}{CMDCOL.FAIL}Exhaustive token parsing protection{CMDCOL.END}{CMDCOL.OKAY} >>> expected `{CMDCOL.GOOD}{16}{CMDCOL.OKAY}` | got `{CMDCOL.FAIL}{n}{CMDCOL.OKAY}`")
+
+    ret: list[Token] = []
+    if data in alone_token:
+        ret += [Token(alone_token[data], data)]
         data = ""
-    elif data in assisted_static_token:
-        ret += [OpType(assisted_static_token[data], loc, data, -1)]
-        data = ""
-    elif data in unprotected_static_token:
-        ret += [OpType(unprotected_static_token[data], loc, data, -1)]
+    elif data in indifferent_token:
+        ret += [Token(indifferent_token[data], data)]
         data = ""
     else:
-        for x in list(protected_static_token.keys())+list(assisted_static_token.keys()):
+        for x in list(alone_token.keys()):
             if data.startswith(x):
-                assert False, "keyword starts with disallowed token %s | %s" % (x, data)
-        for x in assisted_static_token.keys():
+                error(Error.TOKENIZE, f"{CMDCOL.BOLD}{CMDCOL.FAIL}Error{CMDCOL.WARN} {file_path}:{loc[0]+1}:{loc[1]-len(data)} keyword starts with disallowed token {x} in {data}{CMDCOL.END}")
+        for x in indifferent_token.keys():
             if data.find(x) != -1:
                 (before, token, after) = data.partition(x)
-                ret += Parse_token(loc, before)
-                ret += [OpType(assisted_static_token[token], loc, token, -1)]
+                ret += Parse_token(file_path, loc, before)
+                if before:
+                    ret += [Token(indifferent_token[token], token)]
                 if after:
-                    ret += Parse_token(loc, after)
+                    ret += Parse_token(file_path, loc, after)
                 data = ""
 
         if data.isnumeric():
-            ret += [OpType(OP.NUM, loc, int(data), -1)]
+            ret += [Token(TOKENS.NUM, data)]
             data = ""
         if data:
-            ret += [OpType(OP.VAR, loc, data, -1)]
+            ret += [Token(TOKENS.NAME, data)]
             #assert False, "unknown keyword %s" % (data)
     
+    for x in ret:
+        print(x)
+
     return ret
 
-def Parse_line(line: int, data: str) -> list:
+def Parse_line(file_path: str, line: int, data: str) -> list:
     ret = []
     t = ""
     index = 0
-    if data.find("//"):
+    if data.find("//") != -1:
         (before, _, _) = data.partition("//")
         data = before
     while index < len(data):
         if data[index].isspace():
-            ret += Parse_token((line, index+1), t)
+            ret += Parse_token(file_path, (line, index+1), t)
             t = ""
         else:
             t = t + data[index]
         index += 1
     if t:
-        ret += Parse_token((line, index+1), t)
+        ret += Parse_token(file_path, (line, index+1), t)
     return ret
 
 def Parse_file(input: str) -> list:
     data = []
     with open(input, 'r') as f:
         data = f.readlines()
-    return Parse_jump(resolve_names([op for row, line in enumerate(data) for op in Parse_line(row, line)]))
+    for x in First_token_parse([op for row, line in enumerate(data) for op in Parse_line(input, row, line)]).tokens:
+        print(x)
+    #return Parse_jump(resolve_names([op for row, line in enumerate(data) for op in Parse_line(input, row, line)]))
 
 # ------------------------------------------------------
 # -------------------- TEST SECTION --------------------
@@ -366,7 +435,7 @@ if __name__ == "__main__":
 
             if not os.path.isfile(input_file):
                 error(Error.CMD, "Wrong file provided, compiller couldn't find file at a `%s` location" % (input_file))
-                data = Parse_file(input_file)
+            data = Parse_file(input_file)
             
             compile_data(data)
         case 's':
@@ -374,9 +443,9 @@ if __name__ == "__main__":
 
             if not os.path.isfile(input_file):
                 error(Error.CMD, "Wrong file provided, compiller couldn't find file at a `%s` location" % (input_file))
-                data = Parse_file(input_file)
+            data = Parse_file(input_file)
             
-            simulate_data(data)
+            #simulate_data(data)
         case 't':
             test_type: str
 

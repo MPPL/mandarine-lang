@@ -1,5 +1,8 @@
-10 = loop
-loop while copy : //while loop
-    copy 54 loop++  .c .n
+// active development and testing file
+// while(<value>){<code>}
+u8 loop = 10
+loop while(copy)
+{
+    copy ..n
     1 -
-end
+}
