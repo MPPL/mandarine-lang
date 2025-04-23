@@ -352,6 +352,8 @@ def compare_test():
         else:
             sys.stdout.write(f"{CMDCOL.LINE}{x}{CMDCOL.END} {CMDCOL.GOOD}Passed{CMDCOL.END}\n")
 
+# CMD LINE
+
 if __name__ == "__main__":
     argv: list[str] = sys.argv[1:]
     if len(argv) < 1:
