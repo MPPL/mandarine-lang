@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import sys
 import subprocess
 from enum import Enum, auto
@@ -80,6 +82,7 @@ class Token:
 class Var:
     type: DT
     name: str
+    startvalue: bytearray = bytearray("123")
 class codeBlock:
     id:         int = -1
     type:       CB = CB.COMPILETIME
@@ -192,11 +195,14 @@ alone_token = {
     ".c"    : TOKENS.WORD,
 }
 
-indifferent_token = {
+protected_token = {
     "if"    : TOKENS.WORD,
     "while" : TOKENS.WORD,
     "copy"  : TOKENS.WORD,
     "u8"    : TOKENS.TYPE,
+}
+
+indifferent_token = {
     "="     : TOKENS.OPERAND,
     "+"     : TOKENS.OPERAND,
     "-"     : TOKENS.OPERAND,
@@ -385,35 +391,32 @@ def Parse_token(file_path: str, loc: tuple[int, int], data: str) -> list[Token]:
     if data in alone_token:
         ret += [Token(alone_token[data], data)]
         data = ""
+    elif data in protected_token:
+        ret += [Token(protected_token[data], data)]
+        data = ""
     elif data in indifferent_token:
         ret += [Token(indifferent_token[data], data)]
         data = ""
     else:
         for x in list(alone_token.keys()):
-            if data.startswith(x):
+            if data.startswith(x) or data.endswith(x):
                 error(Error.TOKENIZE, f"{CMDCOL.BOLD}{CMDCOL.FAIL}Error{CMDCOL.WARN} {file_path}:{loc[0]+1}:{loc[1]-len(data)} keyword starts with disallowed token {x} in {data}{CMDCOL.END}")
         for x in indifferent_token.keys():
             if data.find(x) != -1:
                 (before, token, after) = data.partition(x)
-                ret += Parse_token(file_path, loc, before)
                 if before:
-                    ret += [Token(indifferent_token[token], token)]
-                if after:
-                    ret += Parse_token(file_path, loc, after)
-                data = ""
+                    ret += Parse_token(file_path, loc, before)
+                ret += Parse_token(file_path, loc, token)
+                data = after
 
         if data.isnumeric():
             ret += [Token(TOKENS.NUM, data)]
             data = ""
         if data:
-            print(data)
             if data[0].isdigit():
                 error(Error.TOKENIZE, f"name token cannot begin with a number")
             ret += [Token(TOKENS.NAME, data)]
             #assert False, "unknown keyword %s" % (data)
-    
-    for x in ret:
-        print(x)
 
     return ret
 
@@ -422,7 +425,7 @@ def Parse_line(file_path: str, line: int, data: str) -> list:
     t = ""
     index = 0
     if data.find("//") != -1:
-        (before, _, _) = data.partition("//")
+        (before, _, after) = data.partition("//")
         data = before
     while index < len(data):
         if data[index].isspace():
@@ -439,6 +442,8 @@ def Parse_file(input: str) -> list:
     data = []
     with open(input, 'r') as f:
         data = f.readlines()
+    for x in [op for row, line in enumerate(data) for op in Parse_line(input, row, line)]:
+        print(x)
     for x in Secound_token_parse(First_token_parse([op for row, line in enumerate(data) for op in Parse_line(input, row, line)])).vars:
         print(x)
     #return Parse_jump(resolve_names([op for row, line in enumerate(data) for op in Parse_line(input, row, line)]))
