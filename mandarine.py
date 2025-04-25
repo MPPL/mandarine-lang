@@ -2,7 +2,7 @@
 
 import sys
 import subprocess
-from enum import Enum, auto
+from enum import Enum, auto, Flag
 import types
 import typing
 import os
@@ -15,28 +15,31 @@ HEAP_SIZE = 64 * 1<<10
 #GLOBAL_ERROR_COUNT = 0
 
 __HELP_STR__ ='''
-commandline usage: mandarin.py <[c <input_file> <c_options>]|[s <input_file> <s_options>]>
+commandline usage: mandarin.py <[-c <input_file> <c_options>]|[-S <input_file> <s_options>]|[-t <t_options>]>
 
 <input_file> -> *.mand
 
 <c_options> -> [-o <output_file>]
 
-<s_options> -> [-s <output_file>]
+!not implemented yet! <s_options> -> [-s <output_file>]
+
+<t_options> -> [record | compare]
+    record -> record output of tests
+    compare (default) -> compares output of tests to recorded data
 
     -o -> specify output file for compilation
-    -s -> specify output file for outputting of simulation data output
+    -S -> specify output file for outputting of simulation data output
     
 '''
-
-class CMDCOL:
-    GOOD = '\033[92m'
-    OKAY = '\033[96m'
-    OK = '\033[94m'
-    WARN = '\033[93m'
-    FAIL = '\033[91m'
-    BOLD = '\033[1m'
-    LINE = '\033[4m'
-    END = '\033[0m'
+GOOD_ = '\033[92m'
+OKAY_ = '\033[96m'
+OK_ = '\033[94m'
+WARN_ = '\033[93m'
+FAIL_ = '\033[91m'
+BOLD_ = '\033[1m'
+LINE_ = '\033[4m'
+END_ = '\033[0m'
+BACK_ = '{0}'
 
 class TOKENS(Enum):
     WORD        = auto()
@@ -122,11 +125,55 @@ class Error(Enum):
     TOKENIZE    = auto()
     COMPILE     = auto()
     SIMULATE    = auto()
+    TEST        = auto()
+    SELF        = auto()
 
-def error(errorType: int, errorStr: str, exitAfter: bool = True):
-    sys.stderr.write(" >>> " + errorStr + f"{CMDCOL.END}\n")
+class LogFlag(Flag):
+    DEFAULT     = 0
+    FAIL        = auto()
+    WARNING     = auto()
+    INFO        = auto()
+    GOOD        = auto()
+    EXPECTED    = auto()
+
+def error(errorType: Error, errorStr: str, expected: tuple[typing.Any, typing.Any] = (None,None), flags: LogFlag = LogFlag(0), exitAfter: bool = True):
+    
+    if not errorStr:
+        error(Error.SELF, f"{BOLD_}errorStr{BACK_} is empty for error() call!!!")
+
+    out: str = f"{LINE_}{OKAY_}Error.{errorType.name}{END_} "
+    outfun: callable
+
+    if LogFlag.FAIL in flags:
+        errorStr = errorStr.format(FAIL_)
+        out = out + f"{FAIL_}{errorStr}{END_}"
+        outfun = sys.stderr.write
+    elif LogFlag.WARNING in flags:
+        errorStr = errorStr.format(WARN_)
+        out = out + f"{WARN_}{errorStr}{END_}"
+        outfun = sys.stderr.write
+    elif LogFlag.INFO in flags:
+        errorStr = errorStr.format(OK_)
+        out = out + f"{OK_}{errorStr}{END_}"
+        outfun = sys.stdout.write
+    elif LogFlag.GOOD in flags:
+        errorStr = errorStr.format(GOOD_)
+        out = out + f"{GOOD_}{errorStr}{END_}"
+        outfun = sys.stdout.write
+    else:
+        errorStr = errorStr.format(OKAY_)
+        out = out + f"{OKAY_}{errorStr}{END_}"
+        outfun = sys.stdout.write
+    
+    if LogFlag.EXPECTED in flags:
+        if expected[0] == None:
+            error(Error.SELF, f"no `{BOLD_}expected{BACK_}` string for error message with {BOLD_}EXPECTED{BACK_} Flag\n Error message passed > {errorStr}")
+        out = out + f"{OKAY_} >>> Expected `{GOOD_}{expected[0]}{OKAY_}` found `{FAIL_}{expected[1]}{OKAY_}`{END_}"
+
+    outfun(out)
+
     if(errorType == Error.CMD):
-        sys.stdout.write(__HELP_STR__ + f"{CMDCOL.END}\n")
+        sys.stdout.write(__HELP_STR__ + f"{END_}\n")
     if exitAfter:
         exit(1)
 
@@ -198,7 +245,7 @@ def simulate_data(data: list[dict], out = sys.stdout):
 
 def unpack(arr: list) -> tuple[typing.Any, list]:
     if len(argv) < 1:
-        error(Error.CMD, "Not enough arguments!")
+        error(Error.CMD, "Not enough arguments!", LogFlag.WARNING)
     return (arr[0], arr[1:])
 
 alone_token: dict[str, TOKENS] = {
@@ -232,8 +279,6 @@ indifferent_token: dict[str, TOKENS] = {
     "}"     : TOKENS.CODECLOSE,
     ")"     : TOKENS.CODECLOSE,
 }
-
-
 
 operand_map: dict[str, OP] = {
     "while" : OP.WHILE,
@@ -292,9 +337,9 @@ def resolve_names(data: list[OpType]) -> list[OpType]:
     while index < len(data):
         if data[index].type == OP.SET:
             if 0 >= index >= len(data)-1:
-                error(Error.PARSE, "Wrong usage of `=`, found at the end or begining of file")
+                error(Error.PARSE, f"Wrong usage of `{BOLD_}={BACK_}`, found at the end or begining of file", flags = LogFlag.FAIL)
             if data[index-1].type != OP.NUM or data[index+1].type != OP.VAR:
-                error(Error.PARSE, "Wrong usage of `=`, couldn't find number or/and var name at either side\n ip-1 > %s | ip+1 > %s" % (data[index-1].type.name,data[index+1].type.name))
+                error(Error.PARSE, f"Wrong usage of `{BOLD_}={BACK_}`, couldn't find number or/and var name at either side\n {BOLD_}ip-1 > {data[index-1].type.name}{BACK_} | {BOLD_}ip+1 > {data[index+1].type.name}{BACK_}", flags = LogFlag.FAIL)
             index -= 1
             data.pop(index+1)
             num = data[index].value
@@ -303,9 +348,9 @@ def resolve_names(data: list[OpType]) -> list[OpType]:
             while secIndex < len(data):
                 if data[secIndex].type == OP.SET:
                     if 0 >= secIndex >= len(data)-1:
-                        error(Error.PARSE, "Wrong usage of `=` during reassigment")
+                        error(Error.PARSE, f"Wrong usage of `{BOLD_}={BACK_}` during reassigment", flags = LogFlag.FAIL)
                     if data[secIndex+1].type != OP.VAR or data[secIndex+1].value != tmp.value or data[secIndex-1].type != OP.NUM:
-                        error(Error.PARSE, "Wrong usage of `=` during reassigment, couldn't find number ")
+                        error(Error.PARSE, f"Wrong usage of `{BOLD_}={BACK_}` during reassigment, couldn't find number ", flags = LogFlag.FAIL)
                     secIndex -= 1
                     data.pop(secIndex+1)
                     data.pop(secIndex+1)
@@ -317,7 +362,6 @@ def resolve_names(data: list[OpType]) -> list[OpType]:
                 secIndex += 1
         index += 1
     return data
-
 
 def Parse_jump(data: list[OpType]) -> list[OpType]:
     assert OP.COUNT.value == 16, "Exhaustive token jump parsing protection"
@@ -338,16 +382,16 @@ def Parse_jump(data: list[OpType]) -> list[OpType]:
                     case OP.IF:
                         data[x].jmp = index
                     case OP.WHILE:
-                        error(Error.PARSE, "`end` after while without `:` symbol!")
+                        error(Error.PARSE, f"`{BOLD_}end{BACK_}` after while without `{BOLD_}:{BACK_}` symbol!", flags = LogFlag.FAIL)
                     case OP.DIACRITIC:
                         if len(end_stack):
                             y = end_stack.pop()
                             if data[y].type != OP.WHILE:
-                                error(Error.PARSE, "use of `:` without `while` beforehand!")
+                                error(Error.PARSE, "use of `:` without `while` beforehand!", flags = LogFlag.FAIL)
                             data[x].jmp = index
                             data[index].jmp = y
                     case _:
-                        error(Error.TOKENIZE, "unreachable or not implemented")
+                        error(Error.TOKENIZE, "unreachable or not implemented", flags = LogFlag.FAIL)
         index += 1
     return data
 
@@ -357,15 +401,28 @@ def Parse_jump(data: list[OpType]) -> list[OpType]:
 
 def Parse_condition_block(data: codeBlock) -> codeBlock:
 
+    if (n:=OP.COUNT.value) != (m:=23):
+        error(Error.ENUM, f"{BOLD_}Exhaustive operation parsing protection in {BOLD_}Parse_condition_block{BACK_}", expected = (m,n), flags = LogFlag.FAIL | LogFlag.EXPECTED)
     if data.type != CB.CONDITION:
-        error(Error.PARSE, f"{CMDCOL.FAIL}Passed non-condition type codeblock to Parse_condition_block")
+        error(Error.PARSE, f"Passed non-condition type codeblock to {BOLD_}Parse_condition_block{BACK_}", flags = LogFlag.FAIL)
+
+    left: list[OpType] = []
+    right: list[OpType] = []
+
+    # left : right -> True : False
+    left_or_right: bool = True
+
+    index = 0
+    while index < len(data):
+        pass
+        
 
 def Third_token_parse(data: codeBlock) -> codeBlock:
     
     if (n:=OP.COUNT.value) != (m:=23):
-        error(Error.ENUM, f"{CMDCOL.BOLD}{CMDCOL.FAIL}Exhaustive operation parsing protection in Secound_token_parse{CMDCOL.END}{CMDCOL.OKAY} >>> expected `{CMDCOL.GOOD}{m}{CMDCOL.OKAY}` | got `{CMDCOL.FAIL}{n}{CMDCOL.OKAY}`")
+        error(Error.ENUM, f"{BOLD_}Exhaustive operation parsing protection in {BOLD_}Third_token_parse{BACK_}", expected = (m,n), flags = LogFlag.FAIL | LogFlag.EXPECTED)
     if (n:=CB.COUNT.value) != (m:=5):
-        error(Error.ENUM, f"{CMDCOL.BOLD}{CMDCOL.FAIL}Exhaustive codeblock parsing protection in Secound_token_parse{CMDCOL.END}{CMDCOL.OKAY} >>> expected `{CMDCOL.GOOD}{m}{CMDCOL.OKAY}` | got `{CMDCOL.FAIL}{n}{CMDCOL.OKAY}`")
+        error(Error.ENUM, f"{BOLD_}Exhaustive codeBlock parsing protection in {BOLD_}Third_token_parse{BACK_}", expected = (m,n), flags = LogFlag.FAIL | LogFlag.EXPECTED)
     if data.type == CB.COMPILETIME:
         index = 0
         index_offset = 0
@@ -396,9 +453,9 @@ def Third_token_parse(data: codeBlock) -> codeBlock:
 def Secound_token_parse(data: codeBlock, index_offset: int = 0) -> codeBlock:
 
     if (n:=OP.COUNT.value) != (m:=23):
-        error(Error.ENUM, f"{CMDCOL.BOLD}{CMDCOL.FAIL}Exhaustive operation parsing protection in Secound_token_parse{CMDCOL.END}{CMDCOL.OKAY} >>> expected `{CMDCOL.GOOD}{m}{CMDCOL.OKAY}` | got `{CMDCOL.FAIL}{n}{CMDCOL.OKAY}`")
+        error(Error.ENUM, f"{BOLD_}Exhaustive operation parsing protection in {BOLD_}Secound_token_parse{BACK_}", expected = (m,n), flags = LogFlag.FAIL | LogFlag.EXPECTED)
     if (n:=CB.COUNT.value) != (m:=5):
-        error(Error.ENUM, f"{CMDCOL.BOLD}{CMDCOL.FAIL}Exhaustive codeblock parsing protection in Secound_token_parse{CMDCOL.END}{CMDCOL.OKAY} >>> expected `{CMDCOL.GOOD}{m}{CMDCOL.OKAY}` | got `{CMDCOL.FAIL}{n}{CMDCOL.OKAY}`")
+        error(Error.ENUM, f"{BOLD_}Exhaustive codeBlock parsing protection in {BOLD_}Secound_token_parse{BACK_}", expected = (m,n), flags = LogFlag.FAIL | LogFlag.EXPECTED)
     
     index = 0
     while index < len(data.tokens):
@@ -411,14 +468,14 @@ def Secound_token_parse(data: codeBlock, index_offset: int = 0) -> codeBlock:
                             data.tokens.pop(index)
                             index += 1
                         else:
-                            error(Error.PARSE, f"var already stated")
+                            error(Error.PARSE, f"var already stated", flags = LogFlag.FAIL)
                     else:
-                        error(Error.PARSE, f"no var token after type")
+                        error(Error.PARSE, f"no var token after type", flags = LogFlag.FAIL)
                 else:
-                    error(Error.PARSE, f"type at the end of file")
+                    error(Error.PARSE, f"type at the end of file", flags = LogFlag.FAIL)
             case OP.VAR:
                 if not (n:=data.tokens[index].value) in [x.name for x in data.vars]:
-                    error(Error.PARSE, f"{CMDCOL.FAIL}Variable `{CMDCOL.OKAY}{CMDCOL.LINE}{n}{CMDCOL.END}{CMDCOL.FAIL}` stated without assigment!")
+                    error(Error.PARSE, f"Variable `{BOLD_}{n}{BACK_}` stated without assigment!", flags = LogFlag.FAIL)
 
             case CB.CODE | CB.CONDITION | CB.RESOLVE:
                 data.tokens[index].vars = data.vars.copy()
@@ -429,7 +486,7 @@ def Secound_token_parse(data: codeBlock, index_offset: int = 0) -> codeBlock:
 def First_token_parse(data: list[Token]) -> codeBlock:
 
     if (n:=OP.COUNT.value) != (m:=23):
-        error(Error.ENUM, f"{CMDCOL.BOLD}{CMDCOL.FAIL}Exhaustive operation parsing protection in First_token_parse{CMDCOL.END}{CMDCOL.OKAY} >>> expected `{CMDCOL.GOOD}{m}{CMDCOL.OKAY}` | got `{CMDCOL.FAIL}{n}{CMDCOL.OKAY}`")
+        error(Error.ENUM, f"{BOLD_}Exhaustive operation parsing protection in {BOLD_}First_token_parse{BACK_}", expected = (m,n), flags = LogFlag.FAIL | LogFlag.EXPECTED)
 
 
     ret: codeBlock = codeBlock(0)
@@ -463,20 +520,20 @@ def First_token_parse(data: list[Token]) -> codeBlock:
                 match data[index].name:
                     case ")":
                         if codeBlock_stack[-1].type != CB.CONDITION:
-                            error(Error.PARSE, f"{CMDCOL.FAIL}Found wrong codeBlock closing!{CMDCOL.OK} Expected `{CMDCOL.GOOD}){CMDCOL.OK}` found `{CMDCOL.FAIL}{data[index].name}{CMDCOL.OK}`{CMDCOL.END}")
+                            error(Error.PARSE, f"Found wrong codeBlock closing!", expected = (')',data[index].name), flags = LogFlag.FAIL | LogFlag.EXPECTED)
                     case "{":
                         if codeBlock_stack[-1].type != CB.CODE:
-                            error(Error.PARSE, f"{CMDCOL.FAIL}Found wrong codeBlock closing!{CMDCOL.OK} Expected `{CMDCOL.GOOD}{'}'}{CMDCOL.OK}` found `{CMDCOL.FAIL}{data[index].name}{CMDCOL.OK}`{CMDCOL.END}")
+                            error(Error.PARSE, f"Found wrong codeBlock closing!", expected = ('}',data[index].name), flags = LogFlag.FAIL | LogFlag.EXPECTED)
                 codeBlock_stack[-2].tokens.append(codeBlock_stack.pop())
                 index_offset -= 1
             case _:
-                error(Error.PARSE, "unreachable!")
+                error(Error.PARSE, "unreachable!", flags = LogFlag.FAIL)
         index += 1
     return codeBlock_stack[-1]
 
 def Parse_token(file_path: str, loc: tuple[int, int], data: str) -> list[Token]:
-    if (n:=TOKENS.COUNT.value) != 8:
-        error(Error.ENUM, f"{CMDCOL.BOLD}{CMDCOL.FAIL}Exhaustive token parsing protection in Parse_token{CMDCOL.END}{CMDCOL.OKAY} >>> expected `{CMDCOL.GOOD}{16}{CMDCOL.OKAY}` | got `{CMDCOL.FAIL}{n}{CMDCOL.OKAY}`")
+    if (n:=TOKENS.COUNT.value) != (m:=8):
+        error(Error.ENUM, f"{BOLD_}Exhaustive operation parsing protection in {BOLD_}Parse_token{BACK_}", expected = (m,n), flags = LogFlag.FAIL | LogFlag.EXPECTED)
 
     ret: list[Token] = []
     if data in alone_token:
@@ -491,7 +548,7 @@ def Parse_token(file_path: str, loc: tuple[int, int], data: str) -> list[Token]:
     else:
         for x in list(alone_token.keys()):
             if data.startswith(x) or data.endswith(x):
-                error(Error.TOKENIZE, f"{CMDCOL.BOLD}{CMDCOL.FAIL}Error{CMDCOL.WARN} {file_path}:{loc[0]+1}:{loc[1]-len(data)} keyword starts with disallowed token {x} in {data}{CMDCOL.END}")
+                error(Error.TOKENIZE, f"at {file_path}:{loc[0]+1}:{loc[1]-len(data)} keyword starts with disallowed token `{BOLD_}{x}{BACK_}` in `{BOLD_}{data}{BACK_}`", flags = LogFlag.FAIL)
         for x in indifferent_token.keys():
             if data.find(x) != -1:
                 (before, token, after) = data.partition(x)
@@ -505,7 +562,7 @@ def Parse_token(file_path: str, loc: tuple[int, int], data: str) -> list[Token]:
             data = ""
         if data:
             if data[0].isdigit():
-                error(Error.TOKENIZE, f"name token cannot begin with a number")
+                error(Error.TOKENIZE, f"name token cannot begin with a number", flags = LogFlag.FAIL)
             ret += [Token(TOKENS.NAME, data)]
             #assert False, "unknown keyword %s" % (data)
 
@@ -531,11 +588,12 @@ def Parse_line(file_path: str, line: int, data: str) -> list:
 
 # debug
 def Print_codeBlock_ops(data: codeBlock, suffix="") -> None:
+    color: tuple[LogFlag, LogFlag] = (LogFlag.GOOD,LogFlag.WARNING)
     for x in data.tokens:
         if x.type in CB:
             Print_codeBlock_ops(x, suffix = f"in {data.id} > ")
         else:
-            print(f"{suffix}in {data.id} > {x}")
+            error(Error.TEST, f"{suffix}in {data.id} > {x}\n", flags = color[data.id % len(color)], exitAfter = False)
 
 def Parse_file(input: str) -> list:
     data = []
@@ -570,36 +628,36 @@ def compare_test():
         dh: dataHolder = dataHolder()
         simulate_data(Parse_file(x), out = dh)
         if not dh.compare_with_file(x[:-5]+".txt"):
-            sys.stderr.write(f"{CMDCOL.LINE}{x}{CMDCOL.END} {CMDCOL.FAIL}Test Failed{CMDCOL.END}\n")
+            error(Error.TEST, f"{BOLD_}{x}{BACK_} Test Failed\n", flags = LogFlag.WARNING, exitAfter = False)
         else:
-            sys.stdout.write(f"{CMDCOL.LINE}{x}{CMDCOL.END} {CMDCOL.GOOD}Passed{CMDCOL.END}\n")
+            error(Error.TEST, f"{BOLD_}{x}{BACK_} Passed\n", flags = LogFlag.GOOD, exitAfter = False)
 
 # CMD LINE
 
 if __name__ == "__main__":
     argv: list[str] = sys.argv[1:]
     if len(argv) < 1:
-        error(Error.CMD, "No Commandline options provided")
+        error(Error.CMD, "No Commandline options provided", flags = LogFlag.WARNING)
     option, argv = unpack(argv)
 
     match option:
-        case 'c':
+        case '-c':
             input_file, argv = unpack(argv)
 
             if not os.path.isfile(input_file):
-                error(Error.CMD, "Wrong file provided, compiller couldn't find file at a `%s` location" % (input_file))
+                error(Error.CMD, f"Wrong file provided, compiller couldn't find file at a `%s` location" % (input_file), flags = LogFlag.WARNING)
             data = Parse_file(input_file)
             
             compile_data(data)
-        case 's':
+        case '-s':
             input_file, argv = unpack(argv)
 
             if not os.path.isfile(input_file):
-                error(Error.CMD, "Wrong file provided, compiller couldn't find file at a `%s` location" % (input_file))
+                error(Error.CMD, f"Wrong file provided, compiller couldn't find file at a `{input_file}` location", flags = LogFlag.WARNING)
             data = Parse_file(input_file)
             
             #simulate_data(data)
-        case 't':
+        case '-t':
             test_type: str
 
             if len(argv) > 0:
@@ -613,6 +671,6 @@ if __name__ == "__main__":
                 case "compare":
                     compare_test()
                 case _:
-                    error(Error.CMD, "Wrong test type provided, expected `record` or `compare`, got `%s`!" % (test_type)) 
+                    error(Error.CMD, f"Wrong test type provided, expected `record` or `compare`, got `{test_type}`!", flags = LogFlag.WARNING) 
         case _:
-            error(Error.CMD, "Wrong mode provided, expected `c` or `s`, got `%s`!" % (option))
+            error(Error.CMD, f"Wrong mode provided, expected `-c` | `-s` | `-t`, got `{option}`!", flags = LogFlag.WARNING)
