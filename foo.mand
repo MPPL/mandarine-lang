@@ -1,8 +1,9 @@
 // active development and testing file
 // while(<value>){<code>}
-u8 loop = 10
-loop while(copy)
+u8 var1 = 10
+u8 var2 = 20
+while(var1<<1 <= var2<<2)
 {
-    copy ..n
-    1 -
+    var1 ..n
+    var2 1 -
 }

@@ -7,9 +7,12 @@ import types
 import typing
 import os
 import glob
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 HEAP_SIZE = 64 * 1<<10
+
+# for future use. To throw as much errors to cmdline before exiting
+#GLOBAL_ERROR_COUNT = 0
 
 __HELP_STR__ ='''
 commandline usage: mandarin.py <[c <input_file> <c_options>]|[s <input_file> <s_options>]>
@@ -51,6 +54,13 @@ class OP(Enum):
     ADD         = auto()
     SUB         = auto()
     MUL         = auto()
+    SHL         = auto()
+    SHR         = auto()
+    EQUAL       = auto()
+    GREATER     = auto()
+    LESS        = auto()
+    GE          = auto()
+    LE          = auto()
     IF          = auto()
     WHILE       = auto()
     JUMP        = auto()
@@ -82,7 +92,7 @@ class Token:
 class Var:
     type: DT
     name: str
-    startvalue: bytearray = bytearray("123")
+    startvalue: bytearray = field(default_factory=bytearray)
 class codeBlock:
     id:         int = -1
     type:       CB = CB.COMPILETIME
@@ -93,6 +103,9 @@ class codeBlock:
         self.id = id
         self.tokens = tokens
         self.vars = vars
+    
+    def __repr__(self) -> str:
+        return f"(codeBlock > id = {self.id} | type = {self.type})"
 
 @dataclass
 class OpType:
@@ -188,21 +201,28 @@ def unpack(arr: list) -> tuple[typing.Any, list]:
         error(Error.CMD, "Not enough arguments!")
     return (arr[0], arr[1:])
 
-alone_token = {
+alone_token: dict[str, TOKENS] = {
     "."     : TOKENS.WORD,
     ".n"    : TOKENS.WORD,
     "..n"   : TOKENS.WORD,
     ".c"    : TOKENS.WORD,
 }
 
-protected_token = {
+protected_token: dict[str, TOKENS] = {
     "if"    : TOKENS.WORD,
     "while" : TOKENS.WORD,
     "copy"  : TOKENS.WORD,
     "u8"    : TOKENS.TYPE,
 }
 
-indifferent_token = {
+indifferent_token: dict[str, TOKENS] = {
+    "=="    : TOKENS.OPERAND,
+    "<<"    : TOKENS.OPERAND,
+    ">>"    : TOKENS.OPERAND,
+    "<="    : TOKENS.OPERAND,
+    ">="    : TOKENS.OPERAND,
+    "<"     : TOKENS.OPERAND,
+    ">"     : TOKENS.OPERAND,
     "="     : TOKENS.OPERAND,
     "+"     : TOKENS.OPERAND,
     "-"     : TOKENS.OPERAND,
@@ -213,21 +233,43 @@ indifferent_token = {
     ")"     : TOKENS.CODECLOSE,
 }
 
-operand_map = {
-    "."     : OP.PRINT,
-    ".n"    : OP.PRINT_NL,
-    "..n"   : OP.PRINT_AND_NL,
-    ".c"    : OP.PRINT_CHAR,
-    "if"    : OP.IF,
+
+
+operand_map: dict[str, OP] = {
     "while" : OP.WHILE,
     "copy"  : OP.COPY,
+    "..n"   : OP.PRINT_AND_NL,
+    ".n"    : OP.PRINT_NL,
+    ".c"    : OP.PRINT_CHAR,
+    "if"    : OP.IF,
+    "=="    : OP.EQUAL,
+    "<<"    : OP.SHL,
+    ">>"    : OP.SHR,
+    "<="    : OP.LE,
+    ">="    : OP.GE,
+    "<"     : OP.LESS,
+    ">"     : OP.GREATER,
+    "."     : OP.PRINT,
     "="     : OP.SET,
     "+"     : OP.ADD,
     "-"     : OP.SUB,
     "*"     : OP.MUL,
 }
 
-type_map = {
+boolean_ops: tuple[OP] = (
+    OP.ADD,
+    OP.SUB,
+    OP.MUL,
+    OP.SHL,
+    OP.SHR,
+    OP.EQUAL,
+    OP.GREATER,
+    OP.LESS,
+    OP.GE,
+    OP.LE,
+)
+
+type_map: dict[str, DT] = {
     "u8"    : DT.UINT8
 }
 
@@ -249,34 +291,30 @@ def resolve_names(data: list[OpType]) -> list[OpType]:
     num: OpType
     while index < len(data):
         if data[index].type == OP.SET:
-            if 0 < index < len(data)-1:
-                if data[index-1].type == OP.NUM and data[index+1].type == OP.VAR:
-                    index -= 1
-                    data.pop(index+1)
-                    num = data[index].value
-                    tmp = data.pop(index+1)
-                    secIndex = index
-                    while secIndex < len(data):
-                        if data[secIndex].type == OP.SET:
-                            if 0 < secIndex < len(data)-1:
-                                if data[secIndex+1].type == OP.VAR and data[secIndex+1].value == tmp.value and data[secIndex-1].type == OP.NUM:
-                                    secIndex -= 1
-                                    data.pop(secIndex+1)
-                                    data.pop(secIndex+1)
-                                    num = data[secIndex].value
-                                    secIndex -= 3
-                                else:
-                                    error(Error.PARSE, "Wrong usage of `=` during reassigment, couldn't find number ")
-                            else:
-                                error(Error.PARSE, "Wrong usage of `=` during reassigment")
-                        if data[secIndex].type == OP.VAR and data[secIndex].value == tmp.value:
-                            data[secIndex].type = OP.NUM
-                            data[secIndex].value = num
-                        secIndex += 1
-                else:
-                    error(Error.PARSE, "Wrong usage of `=`, couldn't find number or/and var name at either side\n ip-1 > %s | ip+1 > %s" % (data[index-1].type.name,data[index+1].type.name))
-            else:
+            if 0 >= index >= len(data)-1:
                 error(Error.PARSE, "Wrong usage of `=`, found at the end or begining of file")
+            if data[index-1].type != OP.NUM or data[index+1].type != OP.VAR:
+                error(Error.PARSE, "Wrong usage of `=`, couldn't find number or/and var name at either side\n ip-1 > %s | ip+1 > %s" % (data[index-1].type.name,data[index+1].type.name))
+            index -= 1
+            data.pop(index+1)
+            num = data[index].value
+            tmp = data.pop(index+1)
+            secIndex = index
+            while secIndex < len(data):
+                if data[secIndex].type == OP.SET:
+                    if 0 >= secIndex >= len(data)-1:
+                        error(Error.PARSE, "Wrong usage of `=` during reassigment")
+                    if data[secIndex+1].type != OP.VAR or data[secIndex+1].value != tmp.value or data[secIndex-1].type != OP.NUM:
+                        error(Error.PARSE, "Wrong usage of `=` during reassigment, couldn't find number ")
+                    secIndex -= 1
+                    data.pop(secIndex+1)
+                    data.pop(secIndex+1)
+                    num = data[secIndex].value
+                    secIndex -= 3
+                if data[secIndex].type == OP.VAR and data[secIndex].value == tmp.value:
+                    data[secIndex].type = OP.NUM
+                    data[secIndex].value = num
+                secIndex += 1
         index += 1
     return data
 
@@ -304,19 +342,60 @@ def Parse_jump(data: list[OpType]) -> list[OpType]:
                     case OP.DIACRITIC:
                         if len(end_stack):
                             y = end_stack.pop()
-                            if data[y].type == OP.WHILE:
-                                data[x].jmp = index
-                                data[index].jmp = y
-                            else:
+                            if data[y].type != OP.WHILE:
                                 error(Error.PARSE, "use of `:` without `while` beforehand!")
+                            data[x].jmp = index
+                            data[index].jmp = y
                     case _:
                         error(Error.TOKENIZE, "unreachable or not implemented")
         index += 1
     return data
 
+#  IF codeBlock == CB.CONDITION
+#  MUST BE ONLY BOOLEAN AND MATH OPERATIONS WITH REASULT ON STACK (temporary)
+#
+
+def Parse_condition_block(data: codeBlock) -> codeBlock:
+
+    if data.type != CB.CONDITION:
+        error(Error.PARSE, f"{CMDCOL.FAIL}Passed non-condition type codeblock to Parse_condition_block")
+
+def Third_token_parse(data: codeBlock) -> codeBlock:
+    
+    if (n:=OP.COUNT.value) != (m:=23):
+        error(Error.ENUM, f"{CMDCOL.BOLD}{CMDCOL.FAIL}Exhaustive operation parsing protection in Secound_token_parse{CMDCOL.END}{CMDCOL.OKAY} >>> expected `{CMDCOL.GOOD}{m}{CMDCOL.OKAY}` | got `{CMDCOL.FAIL}{n}{CMDCOL.OKAY}`")
+    if (n:=CB.COUNT.value) != (m:=5):
+        error(Error.ENUM, f"{CMDCOL.BOLD}{CMDCOL.FAIL}Exhaustive codeblock parsing protection in Secound_token_parse{CMDCOL.END}{CMDCOL.OKAY} >>> expected `{CMDCOL.GOOD}{m}{CMDCOL.OKAY}` | got `{CMDCOL.FAIL}{n}{CMDCOL.OKAY}`")
+    if data.type == CB.COMPILETIME:
+        index = 0
+        index_offset = 0
+        while index < len(data.tokens):
+            match data.tokens[index].type:
+                case OP.IF:
+                    if index+2 >= len(data.tokens):
+                        error()
+                    if data.tokens[index+1].type != CB.CONDITION:
+                        error()
+                    data.tokens[index+1] = Third_token_parse(data.tokens[index+1])
+                    if data.tokens[index+2].type != CB.CODE:
+                        error()
+                    index_offset += 1
+                    data.tokens[index+2].tokens.append(OpType(OP.LABEL, index+index_offset, f"label{index+index_offset}"))
+                case OP.WHILE:
+                    if index+2 >= len(data.tokens):
+                        error()
+                    if data.tokens[index+1].type != CB.CONDITION:
+                        error()
+                    data.tokens[index+1] = Third_token_parse(data.tokens[index+1])
+                    if data.tokens[index+2].type != CB.CODE:
+                        error()
+                    index_offset += 1
+                    data.tokens[index+2].tokens.append(OpType(OP.LABEL, index+index_offset, f"label{index+index_offset}"))
+
+
 def Secound_token_parse(data: codeBlock, index_offset: int = 0) -> codeBlock:
 
-    if (n:=OP.COUNT.value) != (m:=16):
+    if (n:=OP.COUNT.value) != (m:=23):
         error(Error.ENUM, f"{CMDCOL.BOLD}{CMDCOL.FAIL}Exhaustive operation parsing protection in Secound_token_parse{CMDCOL.END}{CMDCOL.OKAY} >>> expected `{CMDCOL.GOOD}{m}{CMDCOL.OKAY}` | got `{CMDCOL.FAIL}{n}{CMDCOL.OKAY}`")
     if (n:=CB.COUNT.value) != (m:=5):
         error(Error.ENUM, f"{CMDCOL.BOLD}{CMDCOL.FAIL}Exhaustive codeblock parsing protection in Secound_token_parse{CMDCOL.END}{CMDCOL.OKAY} >>> expected `{CMDCOL.GOOD}{m}{CMDCOL.OKAY}` | got `{CMDCOL.FAIL}{n}{CMDCOL.OKAY}`")
@@ -349,7 +428,7 @@ def Secound_token_parse(data: codeBlock, index_offset: int = 0) -> codeBlock:
         
 def First_token_parse(data: list[Token]) -> codeBlock:
 
-    if (n:=OP.COUNT.value) != (m:=16):
+    if (n:=OP.COUNT.value) != (m:=23):
         error(Error.ENUM, f"{CMDCOL.BOLD}{CMDCOL.FAIL}Exhaustive operation parsing protection in First_token_parse{CMDCOL.END}{CMDCOL.OKAY} >>> expected `{CMDCOL.GOOD}{m}{CMDCOL.OKAY}` | got `{CMDCOL.FAIL}{n}{CMDCOL.OKAY}`")
 
 
@@ -373,9 +452,21 @@ def First_token_parse(data: list[Token]) -> codeBlock:
                 codeBlock_stack[-1].tokens.append(OpType(OP.TYPE, index + index_offset, type_map[data[index].name]))
             case TOKENS.CODEOPEN:
                 codeBlock_stack.append(codeBlock(codeblock_id_index, [], []))
+                match data[index].name:
+                    case "(":
+                        codeBlock_stack[-1].type = CB.CONDITION
+                    case "{":
+                        codeBlock_stack[-1].type = CB.CODE
                 codeblock_id_index += 1
                 index_offset -= 1
             case TOKENS.CODECLOSE:
+                match data[index].name:
+                    case ")":
+                        if codeBlock_stack[-1].type != CB.CONDITION:
+                            error(Error.PARSE, f"{CMDCOL.FAIL}Found wrong codeBlock closing!{CMDCOL.OK} Expected `{CMDCOL.GOOD}){CMDCOL.OK}` found `{CMDCOL.FAIL}{data[index].name}{CMDCOL.OK}`{CMDCOL.END}")
+                    case "{":
+                        if codeBlock_stack[-1].type != CB.CODE:
+                            error(Error.PARSE, f"{CMDCOL.FAIL}Found wrong codeBlock closing!{CMDCOL.OK} Expected `{CMDCOL.GOOD}{'}'}{CMDCOL.OK}` found `{CMDCOL.FAIL}{data[index].name}{CMDCOL.OK}`{CMDCOL.END}")
                 codeBlock_stack[-2].tokens.append(codeBlock_stack.pop())
                 index_offset -= 1
             case _:
@@ -438,14 +529,21 @@ def Parse_line(file_path: str, line: int, data: str) -> list:
         ret += Parse_token(file_path, (line, index+1), t)
     return ret
 
+# debug
+def Print_codeBlock_ops(data: codeBlock, suffix="") -> None:
+    for x in data.tokens:
+        if x.type in CB:
+            Print_codeBlock_ops(x, suffix = f"in {data.id} > ")
+        else:
+            print(f"{suffix}in {data.id} > {x}")
+
 def Parse_file(input: str) -> list:
     data = []
     with open(input, 'r') as f:
         data = f.readlines()
     for x in [op for row, line in enumerate(data) for op in Parse_line(input, row, line)]:
         print(x)
-    for x in Secound_token_parse(First_token_parse([op for row, line in enumerate(data) for op in Parse_line(input, row, line)])).vars:
-        print(x)
+    Print_codeBlock_ops(Secound_token_parse(First_token_parse([op for row, line in enumerate(data) for op in Parse_line(input, row, line)])))
     #return Parse_jump(resolve_names([op for row, line in enumerate(data) for op in Parse_line(input, row, line)]))
 
 # ------------------------------------------------------
