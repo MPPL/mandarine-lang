@@ -77,6 +77,7 @@ class OP(Enum):
     PRINT_CHAR  = auto()
     VAR         = auto()
     TYPE        = auto()
+    COLON       = auto()
     COUNT       = auto()
 
 class DT(Enum):
@@ -98,14 +99,14 @@ class Token:
 class Var:
     type: DT
     name: str
-    startvalue: bytearray = field(default_factory=bytearray)
+    value: bytearray = field(default_factory=bytearray)
 class codeBlock:
     id:         int = -1
     type:       CB = CB.COMPILETIME
     tokens:     list[Token | typing.Self] = []
-    vars:       list[Var]
+    vars:       dict[str,Var]
 
-    def __init__(self, id = -1, tokens = [], vars = []):
+    def __init__(self, id = -1, tokens = [], vars = {}):
         self.id = id
         self.tokens = tokens
         self.vars = vars
@@ -181,17 +182,42 @@ def error(errorType: Error, errorStr: str, expected: tuple[typing.Any, typing.An
     if exitAfter:
         exit(1)
 
+class ComState(Flag):
+    NONE            = auto()
+    CONDITION       = auto()
+    ARITHMETIC      = auto()
+    VARDEF          = auto()
+
+
+def bfromNum(type: DT, value: int) -> bytearray:
+
+    if (n:=OP.COUNT.value) != (m:=27):
+        error(Error.ENUM, f"{BOLD_}Exhaustive operation protection in {bolden("bfromNum")}", expected = (m,n), flags = LogFlag.FAIL | LogFlag.EXPECTED)
+    if (n:=DT.COUNT.value) != (m:=2):
+        error(Error.ENUM, f"{BOLD_}Exhaustive datatype protection in {bolden("bfromNum")}", expected = (m,n), flags = LogFlag.FAIL | LogFlag.EXPECTED)
+
+    match type:
+        case DT.UINT8:
+            return bytearray([(value // 256) % 256, value % 256])
+
+
 def compile_data(data: list[dict]):
     assert False, "not implemented yet"
 
-def simulate_data(data: list[dict], out = sys.stdout):
-    assert OP.COUNT.value == 16, "Exhaustive token counter protection"
+def simulate_data(data: codeBlock, out = sys.stdout):
+    
+    if (n:=OP.COUNT.value) != (m:=27):
+        error(Error.ENUM, f"{BOLD_}Exhaustive operation parsing protection in {BOLD_}Parse_condition_block{BACK_}", expected = (m,n), flags = LogFlag.FAIL | LogFlag.EXPECTED)
+    
     heap = bytearray(HEAP_SIZE)
     stack = []
     overjump = False
     ip = 0
-    while ip < len(data):
-        x = data[ip]
+    state: ComState = ComState.NONE
+    temp1: str = ""
+    condition: OP
+    while ip < len(data.tokens):
+        x = data.tokens[ip]
         match x.type:
             case OP.NUM:
                 stack.append(int(x.value))
@@ -207,24 +233,55 @@ def simulate_data(data: list[dict], out = sys.stdout):
                 a = stack.pop()
                 b = stack.pop()
                 stack.append(b*a)
+            case OP.SHL:
+                a = stack.pop()
+                b = stack.pop()
+                stack.append(b<<a)
+            case OP.SHR:
+                a = stack.pop()
+                b = stack.pop()
+                stack.append(b>>a)
             case OP.IF:
-                a = stack.pop()
-                if not a:
-                    ip = x.jmp
-                    continue
+                state = ComState.CONDITION
             case OP.WHILE:
-                pass
-            case OP.DIACRITIC:
+                state = ComState.CONDITION
+            case OP.EQUAL:
+                condition = x.type
+            case OP.GREATER:
+                condition = x.type
+            case OP.LESS:
+                condition = x.type
+            case OP.GE:
+                condition = x.type
+            case OP.LE:
+                condition = x.type
+            case OP.CONJUMP:
                 a = stack.pop()
-                if not a:
-                    ip = x.jmp
-                    overjump = True
-                    continue
-            case OP.END:
-                if x.jmp != -1 and not overjump:
-                    ip = x.jmp
-                    continue
-                overjump = False
+                b = stack.pop()
+                match condition:
+                    case OP.EQUAL:
+                        if not b == a:
+                            ip = int(x.value[5:])
+                            continue
+                    case OP.GREATER:
+                        if not b > a:
+                            ip = int(x.value[5:])
+                            continue
+                    case OP.LESS:
+                        if not b < a:
+                            ip = int(x.value[5:])
+                            continue
+                    case OP.GE:
+                        if not b >= a:
+                            ip = int(x.value[5:])
+                            continue
+                    case OP.LE:
+                        if not b <= a:
+                            ip = int(x.value[5:])
+                            continue
+            case OP.JUMP:
+                ip = int(x.value[5:])
+                continue
             case OP.COPY:
                 a = stack.pop()
                 stack.append(a)
@@ -241,10 +298,28 @@ def simulate_data(data: list[dict], out = sys.stdout):
             case OP.PRINT_CHAR:
                 a = stack.pop()
                 out.write(chr(int(a)))
-            case OP.VAR | OP.SET | OP.UINT8:
-                assert False, "unreachable %s | ip -> %d" % (x.type.name, ip)
-            case _:
-                assert False, "unreachable %s | ip -> %d" % (x.type.name, ip)
+            case OP.TYPE:
+                pass
+            case OP.VAR:
+                #print(stack, ip, state)
+                if ComState.ARITHMETIC in state or ComState.CONDITION in state:
+                    if data.vars[x.value].type in [DT.UINT8]:
+                        stack.append(int.from_bytes(data.vars[x.value].value))
+                        #print(stack, ip)
+                    else:
+                        error(Error.SIMULATE, "Other types than UINT8 are not implemented yet")
+                else:
+                    temp1 = x.value
+                    stack.append(int.from_bytes(data.vars[x.value].value))
+            case OP.SET:
+                state = ComState.VARDEF | ComState.ARITHMETIC
+                stack.pop()
+            case OP.COLON:
+                #print(state)
+                if ComState.VARDEF in state:
+                    data.vars[temp1].value = bytearray(bfromNum(data.vars[temp1].type, stack.pop()))
+                state = ComState.NONE
+        #print(data.tokens[ip])
         ip += 1
 
 def unpack(arr: list) -> tuple[typing.Any, list]:
@@ -283,6 +358,7 @@ indifferent_token: dict[str, TOKENS] = {
     "("     : TOKENS.CODEOPEN,
     "}"     : TOKENS.CODECLOSE,
     ")"     : TOKENS.CODECLOSE,
+    ";"     : TOKENS.WORD,
 }
 
 operand_map: dict[str, OP] = {
@@ -305,6 +381,7 @@ operand_map: dict[str, OP] = {
     "+"     : OP.ADD,
     "-"     : OP.SUB,
     "*"     : OP.MUL,
+    ";"     : OP.COLON,
 }
 
 arithmetic_ops: tuple[OP] = (
@@ -330,83 +407,16 @@ type_map: dict[str, DT] = {
 unprotected_static_token = {
 }
 
-def resolve_structures(data: list[OpType]) -> list[OpType]:
-    ret = []
+def Switch_Ops(data: codeBlock, index1: int, index2: int) -> codeBlock:
 
-    index = 0
-    while index < len(data):
-        pass
-    
-    return ret
+    tmp = data.tokens[index1]
+    data.tokens[index1] = data.tokens[index2]
+    data.tokens[index1].loc = tmp.loc
+    tmp2 = data.tokens[index2]
+    data.tokens[index2] = tmp
+    data.tokens[index2].loc = tmp2.loc
 
-def resolve_names(data: list[OpType]) -> list[OpType]:
-    index = 0
-    tmp: OpType
-    num: OpType
-    while index < len(data):
-        if data[index].type == OP.SET:
-            if 0 >= index >= len(data)-1:
-                error(Error.PARSE, f"Wrong usage of `{BOLD_}={BACK_}`, found at the end or begining of file", flags = LogFlag.FAIL)
-            if data[index-1].type != OP.NUM or data[index+1].type != OP.VAR:
-                error(Error.PARSE, f"Wrong usage of `{BOLD_}={BACK_}`, couldn't find number or/and var name at either side\n {BOLD_}ip-1 > {data[index-1].type.name}{BACK_} | {BOLD_}ip+1 > {data[index+1].type.name}{BACK_}", flags = LogFlag.FAIL)
-            index -= 1
-            data.pop(index+1)
-            num = data[index].value
-            tmp = data.pop(index+1)
-            secIndex = index
-            while secIndex < len(data):
-                if data[secIndex].type == OP.SET:
-                    if 0 >= secIndex >= len(data)-1:
-                        error(Error.PARSE, f"Wrong usage of `{BOLD_}={BACK_}` during reassigment", flags = LogFlag.FAIL)
-                    if data[secIndex+1].type != OP.VAR or data[secIndex+1].value != tmp.value or data[secIndex-1].type != OP.NUM:
-                        error(Error.PARSE, f"Wrong usage of `{BOLD_}={BACK_}` during reassigment, couldn't find number ", flags = LogFlag.FAIL)
-                    secIndex -= 1
-                    data.pop(secIndex+1)
-                    data.pop(secIndex+1)
-                    num = data[secIndex].value
-                    secIndex -= 3
-                if data[secIndex].type == OP.VAR and data[secIndex].value == tmp.value:
-                    data[secIndex].type = OP.NUM
-                    data[secIndex].value = num
-                secIndex += 1
-        index += 1
     return data
-
-def Parse_jump(data: list[OpType]) -> list[OpType]:
-    assert OP.COUNT.value == 16, "Exhaustive token jump parsing protection"
-    end_stack = []
-    index = 0
-    while index < len(data):
-        if data[index].type == OP.IF:
-            end_stack.append(index)
-        if data[index].type == OP.WHILE:
-            end_stack.append(index)
-        if data[index].type == OP.DIACRITIC:
-            pass
-            end_stack.append(index)
-        if data[index].type == OP.END:
-            if len(end_stack):
-                x = end_stack.pop()
-                match data[x].type:
-                    case OP.IF:
-                        data[x].jmp = index
-                    case OP.WHILE:
-                        error(Error.PARSE, f"`{BOLD_}end{BACK_}` after while without `{BOLD_}:{BACK_}` symbol!", flags = LogFlag.FAIL)
-                    case OP.DIACRITIC:
-                        if len(end_stack):
-                            y = end_stack.pop()
-                            if data[y].type != OP.WHILE:
-                                error(Error.PARSE, "use of `:` without `while` beforehand!", flags = LogFlag.FAIL)
-                            data[x].jmp = index
-                            data[index].jmp = y
-                    case _:
-                        error(Error.TOKENIZE, "unreachable or not implemented", flags = LogFlag.FAIL)
-        index += 1
-    return data
-
-#  IF codeBlock == CB.CONDITION
-#  MUST BE ONLY BOOLEAN AND MATH OPERATIONS WITH REASULT ON STACK (temporary)
-#
 
 def Shift_listOps(data: list[OpType], shift: int) -> list[OpType]:
     
@@ -434,7 +444,7 @@ def Shift_codeBlock(data: codeBlock, shift: int) -> codeBlock:
 
 def Parse_condition_block(data: codeBlock, type: OP) -> list[OpType]:
 
-    if (n:=OP.COUNT.value) != (m:=26):
+    if (n:=OP.COUNT.value) != (m:=27):
         error(Error.ENUM, f"{BOLD_}Exhaustive operation parsing protection in {BOLD_}Parse_condition_block{BACK_}", expected = (m,n), flags = LogFlag.FAIL | LogFlag.EXPECTED)
     if data.type != CB.CONDITION:
         error(Error.PARSE, f"Passed non-condition type codeblock to {BOLD_}Parse_condition_block{BACK_}", flags = LogFlag.FAIL)
@@ -446,21 +456,29 @@ def Parse_condition_block(data: codeBlock, type: OP) -> list[OpType]:
     left_or_right: bool = True
 
     index = 0
+    l_count = 0
+    r_count = 0
     while index < len(data.tokens):
         match data.tokens[index].type:
             case x if x in [OP.VAR, OP.NUM]:
-                if index % 2 == 1:
-                    error(Error.PARSE, f"Wrong position of token `{bolden(data.tokens[index].type.name)}`, maybe you forgot some opperand? {WARN_}loc = {data.tokens[index].loc}{BACK_}", flags = LogFlag.FAIL)
                 if left_or_right:
+                    if len(left) > 0 and left[-1].type in arithmetic_ops:
+                        error(Error.PARSE, f"Wrong position of token `{bolden(data.tokens[index].type.name)}`, maybe you forgot some opperand? {WARN_}loc = {data.tokens[index].loc}{BACK_}", flags = LogFlag.FAIL)
                     left.append(data.tokens[index])
+                    l_count += 1
                 else:
+                    if len(right) > 0 and right[-1].type in arithmetic_ops:
+                        error(Error.PARSE, f"Wrong position of token `{bolden(data.tokens[index].type.name)}`, maybe you forgot some opperand? {WARN_}loc = {data.tokens[index].loc}{BACK_}", flags = LogFlag.FAIL)
                     right.append(data.tokens[index])
+                    r_count += 1
             case x if x in arithmetic_ops:
-                if index % 2 == 0:
-                    error(Error.PARSE, f"Wrong position of token `{bolden(data.tokens[index].type.name)}`, maybe you forgot some variable or number? {WARN_}loc = {data.tokens[index].loc}{BACK_}", flags = LogFlag.FAIL)
                 if left_or_right:
+                    #if len(left) > 0 and left[-1].type in [OP.VAR, OP.NUM]:
+                    #    error(Error.PARSE, f"Wrong position of token `{bolden(data.tokens[index].type.name)}`, maybe you forgot some opperand? {WARN_}loc = {data.tokens[index].loc}{BACK_}", flags = LogFlag.FAIL)
                     left.append(data.tokens[index])
                 else:
+                    #if len(right) > 0 and right[-1].type in [OP.VAR, OP.NUM]:
+                    #    error(Error.PARSE, f"Wrong position of token `{bolden(data.tokens[index].type.name)}`, maybe you forgot some opperand? {WARN_}loc = {data.tokens[index].loc}{BACK_}", flags = LogFlag.FAIL)
                     right.append(data.tokens[index])
             case x if x in condition_ops:
                 if not len(left):
@@ -473,9 +491,9 @@ def Parse_condition_block(data: codeBlock, type: OP) -> list[OpType]:
                 error(Error.PARSE, f"token `{bolden(data.tokens[index].type.name)}` is disallowed in condition codeBlock")
         index += 1
     
-    if not len(right):
+    if not len(right) or r_count*2-1 != len(right):
         error(Error.PARSE, f"Empty {bolden("right-side")} of condition! {WARN_}loc = {data.tokens[index].loc}{BACK_}", flags = LogFlag.FAIL)
-    if not len(left):
+    if not len(left) or l_count*2-1 != len(left):
         error(Error.PARSE, f"condidion codeBlock is empty!", flags = LogFlag.FAIL)
     if condition == None:
         error(Error.PARSE, f"No condition token found", flags = LogFlag.FAIL)
@@ -485,7 +503,7 @@ def Parse_condition_block(data: codeBlock, type: OP) -> list[OpType]:
 
 def Third_token_parse(data: codeBlock) -> codeBlock:
     
-    if (n:=OP.COUNT.value) != (m:=26):
+    if (n:=OP.COUNT.value) != (m:=27):
         error(Error.ENUM, f"{BOLD_}Exhaustive operation parsing protection in {BOLD_}Third_token_parse{BACK_}", expected = (m,n), flags = LogFlag.FAIL | LogFlag.EXPECTED)
     if (n:=CB.COUNT.value) != (m:=5):
         error(Error.ENUM, f"{BOLD_}Exhaustive codeBlock parsing protection in {BOLD_}Third_token_parse{BACK_}", expected = (m,n), flags = LogFlag.FAIL | LogFlag.EXPECTED)
@@ -554,7 +572,9 @@ def Third_token_parse(data: codeBlock) -> codeBlock:
                 if index+2 >= len(data.tokens):
                     error()
                 if data.tokens[index+1].type != CB.CONDITION:
-                    error()
+                    for x in data.tokens:
+                        print("???",x)
+                    error(Error.PARSE, f"Non Condition codeBlock after While at `{index}`")
                 # Update Parse_condition_block to
                 # 
                 # return list of tokens
@@ -582,12 +602,14 @@ def Third_token_parse(data: codeBlock) -> codeBlock:
                 data.tokens[index+1:] = Shift_listOps(data.tokens[index+1:], index_offset)
                 for i, x in enumerate(con_token_list + code_token_list):
                     data.tokens.insert(index+1+i, x)
+                data = Switch_Ops(data, index, index+1)
+                index += 1
         index += 1
     return data
 
 def Secound_token_parse(data: codeBlock, index_offset: int = 0) -> codeBlock:
 
-    if (n:=OP.COUNT.value) != (m:=26):
+    if (n:=OP.COUNT.value) != (m:=27):
         error(Error.ENUM, f"{BOLD_}Exhaustive operation parsing protection in {BOLD_}Secound_token_parse{BACK_}", expected = (m,n), flags = LogFlag.FAIL | LogFlag.EXPECTED)
     if (n:=CB.COUNT.value) != (m:=5):
         error(Error.ENUM, f"{BOLD_}Exhaustive codeBlock parsing protection in {BOLD_}Secound_token_parse{BACK_}", expected = (m,n), flags = LogFlag.FAIL | LogFlag.EXPECTED)
@@ -598,8 +620,8 @@ def Secound_token_parse(data: codeBlock, index_offset: int = 0) -> codeBlock:
             case OP.TYPE:
                 if index+1 < len(data.tokens):
                     if data.tokens[index+1].type == OP.VAR:
-                        if not (n:=Var(data.tokens[index].value, data.tokens[index+1].value)) in data.vars:
-                            data.vars.append(n)
+                        if not (n:=Var(data.tokens[index].value, (m:=data.tokens[index+1].value))) in data.vars.values():
+                            data.vars[m] = n
                             data.tokens.pop(index)
                             index_offset -= 1
                         else:
@@ -609,7 +631,7 @@ def Secound_token_parse(data: codeBlock, index_offset: int = 0) -> codeBlock:
                 else:
                     error(Error.PARSE, f"type at the end of file", flags = LogFlag.FAIL)
             case OP.VAR:
-                if not (n:=data.tokens[index].value) in [x.name for x in data.vars]:
+                if not (n:=data.tokens[index].value) in data.vars.keys():
                     error(Error.PARSE, f"Variable `{BOLD_}{n}{BACK_}` stated without assigment!", flags = LogFlag.FAIL)
 
             case CB.CODE | CB.CONDITION | CB.RESOLVE:
@@ -623,7 +645,7 @@ def Secound_token_parse(data: codeBlock, index_offset: int = 0) -> codeBlock:
         
 def First_token_parse(data: list[Token]) -> codeBlock:
 
-    if (n:=OP.COUNT.value) != (m:=26):
+    if (n:=OP.COUNT.value) != (m:=27):
         error(Error.ENUM, f"{BOLD_}Exhaustive operation parsing protection in {BOLD_}First_token_parse{BACK_}", expected = (m,n), flags = LogFlag.FAIL | LogFlag.EXPECTED)
 
 
@@ -646,7 +668,7 @@ def First_token_parse(data: list[Token]) -> codeBlock:
             case TOKENS.TYPE:
                 codeBlock_stack[-1].tokens.append(OpType(OP.TYPE, index + index_offset, type_map[data[index].name]))
             case TOKENS.CODEOPEN:
-                codeBlock_stack.append(codeBlock(codeblock_id_index, [], []))
+                codeBlock_stack.append(codeBlock(codeblock_id_index, [], {}))
                 match data[index].name:
                     case "(":
                         codeBlock_stack[-1].type = CB.CONDITION
@@ -742,7 +764,9 @@ def Parse_file(input: str) -> list:
         data = f.readlines()
     #for x in [op for row, line in enumerate(data) for op in Parse_line(input, row, line)]:
         #print(x)
-    Print_codeBlock_ops(Third_token_parse(Secound_token_parse(First_token_parse([op for row, line in enumerate(data) for op in Parse_line(input, row, line)]))))
+    ops: list[OpType] = Third_token_parse(Secound_token_parse(First_token_parse([op for row, line in enumerate(data) for op in Parse_line(input, row, line)])))
+    #Print_codeBlock_ops(ops)
+    return ops
     #return Parse_jump(resolve_names([op for row, line in enumerate(data) for op in Parse_line(input, row, line)]))
 
 # ------------------------------------------------------
@@ -762,11 +786,13 @@ class dataHolder:
 def record_test():
     for x in glob.glob("./tests/*.mand"):
         with open(x[:-5]+".txt", "w") as f:
+            print(x)
             simulate_data(Parse_file(x), out = f)
 
 def compare_test():
     for x in glob.glob("./tests/*.mand"):
         dh: dataHolder = dataHolder()
+        print(x)
         simulate_data(Parse_file(x), out = dh)
         if not dh.compare_with_file(x[:-5]+".txt"):
             error(Error.TEST, f"{BOLD_}{x}{BACK_} Test Failed\n", flags = LogFlag.WARNING, exitAfter = False)
@@ -797,7 +823,7 @@ if __name__ == "__main__":
                 error(Error.CMD, f"Wrong file provided, compiller couldn't find file at a `{input_file}` location", flags = LogFlag.WARNING)
             data = Parse_file(input_file)
             
-            #simulate_data(data)
+            simulate_data(data)
         case '-t':
             test_type: str
 
