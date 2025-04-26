@@ -432,7 +432,7 @@ def Shift_codeBlock(data: codeBlock, shift: int) -> codeBlock:
     
     return data
 
-def Parse_condition_block(data: codeBlock) -> list[OpType]:
+def Parse_condition_block(data: codeBlock, type: OP) -> list[OpType]:
 
     if (n:=OP.COUNT.value) != (m:=26):
         error(Error.ENUM, f"{BOLD_}Exhaustive operation parsing protection in {BOLD_}Parse_condition_block{BACK_}", expected = (m,n), flags = LogFlag.FAIL | LogFlag.EXPECTED)
@@ -479,6 +479,8 @@ def Parse_condition_block(data: codeBlock) -> list[OpType]:
         error(Error.PARSE, f"condidion codeBlock is empty!", flags = LogFlag.FAIL)
     if condition == None:
         error(Error.PARSE, f"No condition token found", flags = LogFlag.FAIL)
+    if type == OP.WHILE:
+        return [OpType(OP.LABEL, (loc:=left[0].loc), f"label{loc}")] + Shift_listOps(left + [condition] + right + [OpType(OP.CONJUMP, right[-1].loc+1)], 1)
     return left + [condition] + right + [OpType(OP.CONJUMP, right[-1].loc+1)]
 
 def Third_token_parse(data: codeBlock) -> codeBlock:
@@ -509,7 +511,7 @@ def Third_token_parse(data: codeBlock) -> codeBlock:
                 # return list of tokens
                 # append to list of tokens a conditional jump and (if 'while') label
                 con_token_list: list[OpType] = []
-                con_token_list = Parse_condition_block(data.tokens[index+1])
+                con_token_list = Parse_condition_block(data.tokens[index+1], OP.IF)
                 index_offset += 1
 
                 if data.tokens[index+2].type != CB.CODE:
@@ -549,18 +551,37 @@ def Third_token_parse(data: codeBlock) -> codeBlock:
                     data.tokens.insert(index+1+i, x)
                 
             case OP.WHILE:
-                # IF finished at 01:58 - 26/04/2025
-                # WHILE will be continued later
-                # for now Parsing jumps and labels in `if-else` works fine
                 if index+2 >= len(data.tokens):
                     error()
                 if data.tokens[index+1].type != CB.CONDITION:
                     error()
-                con_token_list = Parse_condition_block(data.tokens[index+1])
+                # Update Parse_condition_block to
+                # 
+                # return list of tokens
+                # append to list of tokens a conditional jump and (if 'while') label
+                con_token_list: list[OpType] = []
+                con_token_list = Parse_condition_block(data.tokens[index+1], OP.WHILE)
+                index_offset += 2
+
                 if data.tokens[index+2].type != CB.CODE:
                     error()
-                index_offset += 1
-                data.tokens[index+2].tokens.append(OpType(OP.LABEL, index+index_offset, f"label{index+index_offset}"))
+                con_token_list[-1].value = f"label{data.tokens[index+2].tokens[-1].loc+2+index_offset}"
+                #for i, x in enumerate(con_token_list):
+                    #print("con > >", x, index + index_offset + i)
+                code_token_list: list[OpType] = []
+                data.tokens[index+2] = Shift_codeBlock(data.tokens[index+2], index_offset)
+                data.tokens[index+2].tokens.append(OpType(OP.JUMP, data.tokens[index+2].tokens[-1].loc+1, f"label{con_token_list[0].loc}"))
+                data.tokens[index+2].tokens.append(OpType(OP.LABEL, (loc:=data.tokens[index+2].tokens[-1].loc+1), f"label{loc}"))
+                code_token_list += data.tokens[index+2].tokens
+                index_offset += 2
+                #for i, x in enumerate(code_token_list):
+                    #print("code > >", x, index + len(con_token_list)+1 + i)
+                
+                data.tokens.pop(index+1)
+                data.tokens.pop(index+1)
+                data.tokens[index+1:] = Shift_listOps(data.tokens[index+1:], index_offset)
+                for i, x in enumerate(con_token_list + code_token_list):
+                    data.tokens.insert(index+1+i, x)
         index += 1
     return data
 
