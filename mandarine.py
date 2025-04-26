@@ -498,7 +498,6 @@ def Third_token_parse(data: codeBlock) -> codeBlock:
     #        off += len(x.tokens)-1
     #        print(len(x.tokens), i+off, x)
     while index < len(data.tokens):
-        print(data.tokens[index], index+index_offset)
         match data.tokens[index].type:
             case OP.IF:
                 if index+2 >= len(data.tokens):
