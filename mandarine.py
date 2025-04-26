@@ -65,8 +65,11 @@ class OP(Enum):
     GE          = auto()
     LE          = auto()
     IF          = auto()
+    ELSE        = auto()
     WHILE       = auto()
+    CONJUMP     = auto()
     JUMP        = auto()
+    LABEL       = auto()
     COPY        = auto()
     PRINT       = auto()
     PRINT_NL    = auto()
@@ -115,8 +118,6 @@ class OpType:
     type:       OP
     loc:        int
     value:      typing.Any = None
-    jmp:        int = -1
-    codeblock:  codeBlock = codeBlock()
 
 class Error(Enum):
     CMD         = auto()
@@ -135,6 +136,9 @@ class LogFlag(Flag):
     INFO        = auto()
     GOOD        = auto()
     EXPECTED    = auto()
+
+def bolden(string: str) -> str:
+    return f"{BOLD_}{string}{BACK_}"
 
 def error(errorType: Error, errorStr: str, expected: tuple[typing.Any, typing.Any] = (None,None), flags: LogFlag = LogFlag(0), exitAfter: bool = True):
     
@@ -249,16 +253,17 @@ def unpack(arr: list) -> tuple[typing.Any, list]:
     return (arr[0], arr[1:])
 
 alone_token: dict[str, TOKENS] = {
-    "."     : TOKENS.WORD,
-    ".n"    : TOKENS.WORD,
     "..n"   : TOKENS.WORD,
+    ".n"    : TOKENS.WORD,
     ".c"    : TOKENS.WORD,
+    "."     : TOKENS.WORD,
 }
 
 protected_token: dict[str, TOKENS] = {
-    "if"    : TOKENS.WORD,
     "while" : TOKENS.WORD,
     "copy"  : TOKENS.WORD,
+    "else"  : TOKENS.WORD,
+    "if"    : TOKENS.WORD,
     "u8"    : TOKENS.TYPE,
 }
 
@@ -283,6 +288,7 @@ indifferent_token: dict[str, TOKENS] = {
 operand_map: dict[str, OP] = {
     "while" : OP.WHILE,
     "copy"  : OP.COPY,
+    "else"  : OP.ELSE,
     "..n"   : OP.PRINT_AND_NL,
     ".n"    : OP.PRINT_NL,
     ".c"    : OP.PRINT_CHAR,
@@ -301,12 +307,15 @@ operand_map: dict[str, OP] = {
     "*"     : OP.MUL,
 }
 
-boolean_ops: tuple[OP] = (
+arithmetic_ops: tuple[OP] = (
     OP.ADD,
     OP.SUB,
     OP.MUL,
     OP.SHL,
     OP.SHR,
+)
+
+condition_ops: tuple[OP] = (
     OP.EQUAL,
     OP.GREATER,
     OP.LESS,
@@ -399,60 +408,166 @@ def Parse_jump(data: list[OpType]) -> list[OpType]:
 #  MUST BE ONLY BOOLEAN AND MATH OPERATIONS WITH REASULT ON STACK (temporary)
 #
 
-def Parse_condition_block(data: codeBlock) -> codeBlock:
+def Shift_listOps(data: list[OpType], shift: int) -> list[OpType]:
+    
+    index = 0
+    while index < len(data):
+        if data[index].type in OP:
+            data[index].loc += shift
+        elif data[index].type in CB:
+            Shift_codeBlock(data[index], shift)
+        index += 1
+    
+    return data
 
-    if (n:=OP.COUNT.value) != (m:=23):
+def Shift_codeBlock(data: codeBlock, shift: int) -> codeBlock:
+    
+    index = 0
+    while index < len(data.tokens):
+        if data.tokens[index].type in OP:
+            data.tokens[index].loc += shift
+        elif data.tokens[index].type in CB:
+            Shift_codeBlock(data.tokens[index], shift)
+        index += 1
+    
+    return data
+
+def Parse_condition_block(data: codeBlock) -> list[OpType]:
+
+    if (n:=OP.COUNT.value) != (m:=26):
         error(Error.ENUM, f"{BOLD_}Exhaustive operation parsing protection in {BOLD_}Parse_condition_block{BACK_}", expected = (m,n), flags = LogFlag.FAIL | LogFlag.EXPECTED)
     if data.type != CB.CONDITION:
         error(Error.PARSE, f"Passed non-condition type codeblock to {BOLD_}Parse_condition_block{BACK_}", flags = LogFlag.FAIL)
 
     left: list[OpType] = []
     right: list[OpType] = []
-
+    condition: OpType = None
     # left : right -> True : False
     left_or_right: bool = True
 
     index = 0
-    while index < len(data):
-        pass
-        
+    while index < len(data.tokens):
+        match data.tokens[index].type:
+            case x if x in [OP.VAR, OP.NUM]:
+                if index % 2 == 1:
+                    error(Error.PARSE, f"Wrong position of token `{bolden(data.tokens[index].type.name)}`, maybe you forgot some opperand? {WARN_}loc = {data.tokens[index].loc}{BACK_}", flags = LogFlag.FAIL)
+                if left_or_right:
+                    left.append(data.tokens[index])
+                else:
+                    right.append(data.tokens[index])
+            case x if x in arithmetic_ops:
+                if index % 2 == 0:
+                    error(Error.PARSE, f"Wrong position of token `{bolden(data.tokens[index].type.name)}`, maybe you forgot some variable or number? {WARN_}loc = {data.tokens[index].loc}{BACK_}", flags = LogFlag.FAIL)
+                if left_or_right:
+                    left.append(data.tokens[index])
+                else:
+                    right.append(data.tokens[index])
+            case x if x in condition_ops:
+                if not len(left):
+                    error(Error.PARSE, f"Empty {bolden("left-side")} of condition! {WARN_}loc = {data.tokens[index].loc}{BACK_}", flags = LogFlag.FAIL)
+                if not left_or_right:
+                    error(Error.PARSE, f"multiple conditions in condition codeBlock are not supported yet", flags = LogFlag.FAIL)
+                condition = data.tokens[index]
+                left_or_right = False
+            case _:
+                error(Error.PARSE, f"token `{bolden(data.tokens[index].type.name)}` is disallowed in condition codeBlock")
+        index += 1
+    
+    if not len(right):
+        error(Error.PARSE, f"Empty {bolden("right-side")} of condition! {WARN_}loc = {data.tokens[index].loc}{BACK_}", flags = LogFlag.FAIL)
+    if not len(left):
+        error(Error.PARSE, f"condidion codeBlock is empty!", flags = LogFlag.FAIL)
+    if condition == None:
+        error(Error.PARSE, f"No condition token found", flags = LogFlag.FAIL)
+    return left + [condition] + right + [OpType(OP.CONJUMP, right[-1].loc+1)]
 
 def Third_token_parse(data: codeBlock) -> codeBlock:
     
-    if (n:=OP.COUNT.value) != (m:=23):
+    if (n:=OP.COUNT.value) != (m:=26):
         error(Error.ENUM, f"{BOLD_}Exhaustive operation parsing protection in {BOLD_}Third_token_parse{BACK_}", expected = (m,n), flags = LogFlag.FAIL | LogFlag.EXPECTED)
     if (n:=CB.COUNT.value) != (m:=5):
         error(Error.ENUM, f"{BOLD_}Exhaustive codeBlock parsing protection in {BOLD_}Third_token_parse{BACK_}", expected = (m,n), flags = LogFlag.FAIL | LogFlag.EXPECTED)
-    if data.type == CB.COMPILETIME:
-        index = 0
-        index_offset = 0
-        while index < len(data.tokens):
-            match data.tokens[index].type:
-                case OP.IF:
-                    if index+2 >= len(data.tokens):
-                        error()
-                    if data.tokens[index+1].type != CB.CONDITION:
-                        error()
-                    data.tokens[index+1] = Third_token_parse(data.tokens[index+1])
-                    if data.tokens[index+2].type != CB.CODE:
-                        error()
-                    index_offset += 1
-                    data.tokens[index+2].tokens.append(OpType(OP.LABEL, index+index_offset, f"label{index+index_offset}"))
-                case OP.WHILE:
-                    if index+2 >= len(data.tokens):
-                        error()
-                    if data.tokens[index+1].type != CB.CONDITION:
-                        error()
-                    data.tokens[index+1] = Third_token_parse(data.tokens[index+1])
-                    if data.tokens[index+2].type != CB.CODE:
-                        error()
-                    index_offset += 1
-                    data.tokens[index+2].tokens.append(OpType(OP.LABEL, index+index_offset, f"label{index+index_offset}"))
+    index = 0
+    index_offset = 0
+    # DEBUG, I was using it while having a lot of problems with wrong OpType.loc after merging codeBlocks
+    #off = 0
+    #for i, x in enumerate(data.tokens):
+    #    if x.type in OP:
+    #        print(x.loc, i+off, x)
+    #    else:
+    #        off += len(x.tokens)-1
+    #        print(len(x.tokens), i+off, x)
+    while index < len(data.tokens):
+        print(data.tokens[index], index+index_offset)
+        match data.tokens[index].type:
+            case OP.IF:
+                if index+2 >= len(data.tokens):
+                    error()
+                if data.tokens[index+1].type != CB.CONDITION:
+                    error()
+                # Update Parse_condition_block to
+                # 
+                # return list of tokens
+                # append to list of tokens a conditional jump and (if 'while') label
+                con_token_list: list[OpType] = []
+                con_token_list = Parse_condition_block(data.tokens[index+1])
+                index_offset += 1
 
+                if data.tokens[index+2].type != CB.CODE:
+                    error()
+                is_else: bool = False
+                if index+4 < len(data.tokens):
+                    if data.tokens[index+3].type == OP.ELSE:
+                        if data.tokens[index+4].type != CB.CODE:
+                            error(Error.PARSE, "ELSE - NO CODEBLOCK", flags = LogFlag.FAIL)
+                        is_else = True
+                con_token_list[-1].loc = con_token_list[-2].loc+1
+                con_token_list[-1].value = f"label{data.tokens[index+2].tokens[-1].loc+1+index_offset+int(is_else)}"
+                #for i, x in enumerate(con_token_list):
+                    #print("con > >", x, index + index_offset + i)
+                code_token_list: list[OpType] = []
+                data.tokens[index+2] = Shift_codeBlock(data.tokens[index+2], index_offset)
+                if is_else:
+                    data.tokens[index+2].tokens.append(OpType(OP.JUMP, data.tokens[index+2].tokens[-1].loc+1, f"label{data.tokens[index+4].tokens[-1].loc+2+index_offset}"))
+                data.tokens[index+2].tokens.append(OpType(OP.LABEL, (loc:=data.tokens[index+2].tokens[-1].loc+1), f"label{loc}"))
+                code_token_list += data.tokens[index+2].tokens
+                index_offset += 1
+
+                data.tokens[index+4] = Shift_codeBlock(data.tokens[index+4], index_offset)
+                data.tokens[index+4].tokens.append(OpType(OP.LABEL, (loc:=data.tokens[index+4].tokens[-1].loc+1), f"label{loc}"))
+                code_token_list += data.tokens[index+4].tokens
+                index_offset += 1
+                #for i, x in enumerate(code_token_list):
+                    #print("code > >", x, index + len(con_token_list)+1 + i)
+                
+                data.tokens.pop(index+1)
+                data.tokens.pop(index+1)
+                if is_else:
+                    data.tokens.pop(index+1)
+                    data.tokens.pop(index+1)
+                data.tokens[index+1:] = Shift_listOps(data.tokens[index+1:], index_offset)
+                for i, x in enumerate(con_token_list + code_token_list):
+                    data.tokens.insert(index+1+i, x)
+                
+            case OP.WHILE:
+                # IF finished at 01:58 - 26/04/2025
+                # WHILE will be continued later
+                # for now Parsing jumps and labels in `if-else` works fine
+                if index+2 >= len(data.tokens):
+                    error()
+                if data.tokens[index+1].type != CB.CONDITION:
+                    error()
+                con_token_list = Parse_condition_block(data.tokens[index+1])
+                if data.tokens[index+2].type != CB.CODE:
+                    error()
+                index_offset += 1
+                data.tokens[index+2].tokens.append(OpType(OP.LABEL, index+index_offset, f"label{index+index_offset}"))
+        index += 1
+    return data
 
 def Secound_token_parse(data: codeBlock, index_offset: int = 0) -> codeBlock:
 
-    if (n:=OP.COUNT.value) != (m:=23):
+    if (n:=OP.COUNT.value) != (m:=26):
         error(Error.ENUM, f"{BOLD_}Exhaustive operation parsing protection in {BOLD_}Secound_token_parse{BACK_}", expected = (m,n), flags = LogFlag.FAIL | LogFlag.EXPECTED)
     if (n:=CB.COUNT.value) != (m:=5):
         error(Error.ENUM, f"{BOLD_}Exhaustive codeBlock parsing protection in {BOLD_}Secound_token_parse{BACK_}", expected = (m,n), flags = LogFlag.FAIL | LogFlag.EXPECTED)
@@ -466,7 +581,7 @@ def Secound_token_parse(data: codeBlock, index_offset: int = 0) -> codeBlock:
                         if not (n:=Var(data.tokens[index].value, data.tokens[index+1].value)) in data.vars:
                             data.vars.append(n)
                             data.tokens.pop(index)
-                            index += 1
+                            index_offset -= 1
                         else:
                             error(Error.PARSE, f"var already stated", flags = LogFlag.FAIL)
                     else:
@@ -479,13 +594,16 @@ def Secound_token_parse(data: codeBlock, index_offset: int = 0) -> codeBlock:
 
             case CB.CODE | CB.CONDITION | CB.RESOLVE:
                 data.tokens[index].vars = data.vars.copy()
-                data.tokens[index] = Secound_token_parse(data.tokens[index], index)
+                data.tokens[index] = Secound_token_parse(data.tokens[index], index_offset)
+        if data.tokens[index].type in OP:
+            #print(data.tokens[index].loc, index_offset, data.tokens[index])
+            data.tokens[index].loc += index_offset
         index += 1
     return data
         
 def First_token_parse(data: list[Token]) -> codeBlock:
 
-    if (n:=OP.COUNT.value) != (m:=23):
+    if (n:=OP.COUNT.value) != (m:=26):
         error(Error.ENUM, f"{BOLD_}Exhaustive operation parsing protection in {BOLD_}First_token_parse{BACK_}", expected = (m,n), flags = LogFlag.FAIL | LogFlag.EXPECTED)
 
 
@@ -555,7 +673,9 @@ def Parse_token(file_path: str, loc: tuple[int, int], data: str) -> list[Token]:
                 if before:
                     ret += Parse_token(file_path, loc, before)
                 ret += Parse_token(file_path, loc, token)
-                data = after
+                ret += Parse_token(file_path, loc, after)
+                data = ""
+                break
 
         if data.isnumeric():
             ret += [Token(TOKENS.NUM, data)]
@@ -587,21 +707,22 @@ def Parse_line(file_path: str, line: int, data: str) -> list:
     return ret
 
 # debug
-def Print_codeBlock_ops(data: codeBlock, suffix="") -> None:
-    color: tuple[LogFlag, LogFlag] = (LogFlag.GOOD,LogFlag.WARNING)
-    for x in data.tokens:
+def Print_codeBlock_ops(data: codeBlock, suffix="", color_offset = 0) -> None:
+    color: tuple[LogFlag, LogFlag, LogFlag] = (LogFlag.GOOD,LogFlag.WARNING, LogFlag.INFO)
+    for i, x in enumerate(data.tokens):
         if x.type in CB:
-            Print_codeBlock_ops(x, suffix = f"in {data.id} > ")
+            color_offset += Print_codeBlock_ops(x, suffix = f"in {data.id} > ", color_offset=i+color_offset)
         else:
-            error(Error.TEST, f"{suffix}in {data.id} > {x}\n", flags = color[data.id % len(color)], exitAfter = False)
+            error(Error.TEST, f"{suffix}in {data.id} > {x}\n", flags = color[(i+color_offset) // 5 % len(color)], exitAfter = False)
+    return len(data.tokens)
 
 def Parse_file(input: str) -> list:
     data = []
     with open(input, 'r') as f:
         data = f.readlines()
-    for x in [op for row, line in enumerate(data) for op in Parse_line(input, row, line)]:
-        print(x)
-    Print_codeBlock_ops(Secound_token_parse(First_token_parse([op for row, line in enumerate(data) for op in Parse_line(input, row, line)])))
+    #for x in [op for row, line in enumerate(data) for op in Parse_line(input, row, line)]:
+        #print(x)
+    Print_codeBlock_ops(Third_token_parse(Secound_token_parse(First_token_parse([op for row, line in enumerate(data) for op in Parse_line(input, row, line)]))))
     #return Parse_jump(resolve_names([op for row, line in enumerate(data) for op in Parse_line(input, row, line)]))
 
 # ------------------------------------------------------

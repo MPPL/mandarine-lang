@@ -1,8 +1,15 @@
 // active development and testing file
 // while(<value>){<code>}
-u8 var1 = 10
-u8 var2 = 20
-while(var1<<1 <= var2<<2)
+u8 var1=10
+u8 var2=20
+
+if(var1+4<=var2-5){
+    var1 ..n
+}else{
+    var2 ..n
+}
+
+while(var1<<1<=var2<<2)
 {
     var1 ..n
     var2 1 -
