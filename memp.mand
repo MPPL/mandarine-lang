@@ -1,0 +1,17 @@
+#mode dos
+u8p hello = 13 buf;
+hello 72 .mem ; hello = hello 1+;
+hello 101 .mem ; hello = hello 1+;
+hello 108 .mem ; hello = hello 1+;
+hello 108 .mem ; hello = hello 1+;
+hello 111 .mem ; hello = hello 1+;
+hello 44 .mem ; hello = hello 1+;
+hello 32 .mem ; hello = hello 1+;
+hello 87 .mem ; hello = hello 1+;
+hello 111 .mem ; hello = hello 1+;
+hello 114 .mem ; hello = hello 1+;
+hello 108 .mem ; hello = hello 1+;
+hello 100 .mem ; hello = hello 1+;
+hello 33 .mem ; hello = hello 1+;
+hello 36 .mem ; hello = hello 13-;
+hello 9 dos;

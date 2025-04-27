@@ -378,7 +378,11 @@ def simulate_data(data: codeBlock, out = sys.stdout):
                 if a == 9:
                     b = stack.pop()
                     for x in range(1<<10):
-                        out.write(heap[b+x].decode("ascii"))
+                        c = chr(heap[b+x])
+                        if c == '$':
+                            break
+                        else:
+                            out.write(c)
                 elif a == 10:
                     b = stack.pop()
                     c = input()[:256]
@@ -393,7 +397,7 @@ def simulate_data(data: codeBlock, out = sys.stdout):
                 #print(ip, a, data.vars[temp1].type)
                 match data.vars[temp1].type:
                     case DT.UINT8MEM:
-                        heap[b] = bfromNum(DT.UINT8, a)
+                        heap[b] = bfromNum(DT.UINT8, a)[0]
                     case DT.UINT16MEM:
                         heap[b:b+2] = bfromNum(DT.UINT16, a)
                     case _:
@@ -479,6 +483,7 @@ operand_map: dict[str, OP] = {
     "else"  : OP.ELSE,
     ".mem"  : OP.MEMWRITE,
     ",mem"  : OP.MEMREAD,
+    "dos"   : OP.DOS,
     "buf"   : OP.BUF,
     "..n"   : OP.PRINT_AND_NL,
     ".n"    : OP.PRINT_NL,
