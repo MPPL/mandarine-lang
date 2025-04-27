@@ -41,7 +41,15 @@ LINE_ = '\033[4m'
 END_ = '\033[0m'
 BACK_ = '{0}'
 
+class COMMODE(Enum):
+    STANDARD    = auto()
+    SET         = auto()
+    DOS         = auto()
+
+Com_Mode: COMMODE = COMMODE.STANDARD
+
 class TOKENS(Enum):
+    NOTOKEN     = auto()
     WORD        = auto()
     OPERAND     = auto()
     NAME        = auto()
@@ -50,6 +58,7 @@ class TOKENS(Enum):
     CODECLOSE   = auto()
     NUM         = auto()
     COUNT       = auto()
+    MODE        = auto()
 
 class OP(Enum):
     NUM         = auto()
@@ -75,6 +84,11 @@ class OP(Enum):
     PRINT_NL    = auto()
     PRINT_AND_NL= auto()
     PRINT_CHAR  = auto()
+    BUF         = auto()
+    MEMWRITE    = auto()
+    MEMREAD     = auto()
+    DOS         = auto()
+    MODE        = auto()
     VAR         = auto()
     TYPE        = auto()
     COLON       = auto()
@@ -82,6 +96,9 @@ class OP(Enum):
 
 class DT(Enum):
     UINT8       = auto()
+    UINT16      = auto()
+    UINT8MEM    = auto()
+    UINT16MEM   = auto()
     COUNT       = auto()
 
 class CB(Enum):
@@ -191,32 +208,57 @@ class ComState(Flag):
 
 def bfromNum(type: DT, value: int) -> bytearray:
 
-    if (n:=OP.COUNT.value) != (m:=27):
+    if (n:=OP.COUNT.value) != (m:=32):
         error(Error.ENUM, f"{BOLD_}Exhaustive operation protection in {bolden("bfromNum")}", expected = (m,n), flags = LogFlag.FAIL | LogFlag.EXPECTED)
-    if (n:=DT.COUNT.value) != (m:=2):
+    if (n:=DT.COUNT.value) != (m:=5):
         error(Error.ENUM, f"{BOLD_}Exhaustive datatype protection in {bolden("bfromNum")}", expected = (m,n), flags = LogFlag.FAIL | LogFlag.EXPECTED)
 
     match type:
         case DT.UINT8:
+            return bytearray([value % 256])
+        case DT.UINT16:
             return bytearray([(value // 256) % 256, value % 256])
+        case DT.UINT8MEM:
+            return bytearray([value % (1<<8)])
+        case DT.UINT16MEM:
+            return bytearray([value % (1<<8)])
+        case _:
+            pass
+            
 
 
 def compile_data(data: list[dict]):
     assert False, "not implemented yet"
 
-def simulate_data(data: codeBlock, out = sys.stdout):
-    
-    if (n:=OP.COUNT.value) != (m:=27):
-        error(Error.ENUM, f"{BOLD_}Exhaustive operation parsing protection in {BOLD_}Parse_condition_block{BACK_}", expected = (m,n), flags = LogFlag.FAIL | LogFlag.EXPECTED)
+    if (n:=OP.COUNT.value) != (m:=32):
+        error(Error.ENUM, f"{BOLD_}Exhaustive operation parsing protection in {BOLD_}simulate_data{BACK_}", expected = (m,n), flags = LogFlag.FAIL | LogFlag.EXPECTED)
     
     heap = bytearray(HEAP_SIZE)
+    heap_end = 0
     stack = []
-    overjump = False
     ip = 0
     state: ComState = ComState.NONE
     temp1: str = ""
     condition: OP
+    last_type: DT
+    debug_counter = -1
+
+def simulate_data(data: codeBlock, out = sys.stdout):
+    
+    if (n:=OP.COUNT.value) != (m:=32):
+        error(Error.ENUM, f"{BOLD_}Exhaustive operation parsing protection in {BOLD_}simulate_data{BACK_}", expected = (m,n), flags = LogFlag.FAIL | LogFlag.EXPECTED)
+    
+    heap = bytearray(HEAP_SIZE)
+    heap_end = 0
+    stack = []
+    ip = 0
+    state: ComState = ComState.NONE
+    temp1: str = ""
+    condition: OP
+    last_type: DT
+    debug_counter = -1
     while ip < len(data.tokens):
+        debug_counter += 1
         x = data.tokens[ip]
         match x.type:
             case OP.NUM:
@@ -300,20 +342,73 @@ def simulate_data(data: codeBlock, out = sys.stdout):
                 out.write(chr(int(a)))
             case OP.TYPE:
                 pass
+            case OP.BUF:
+                if ComState.VARDEF in state:
+                    
+                    match data.vars[temp1].type:
+                        case DT.UINT8MEM:
+                            a = stack.pop()
+                        case DT.UINT16MEM:
+                            a = stack.pop() * 2
+
+                    data.vars[temp1].value = bytearray(bfromNum(data.vars[temp1].type, heap_end))
+                    heap_end += a
+                    data.vars[temp1].value
+                    state = ComState.NONE
+                else:
+                    error(Error.SIMULATE, "Buf used in wrong position")
             case OP.VAR:
                 #print(stack, ip, state)
                 if ComState.ARITHMETIC in state or ComState.CONDITION in state:
-                    if data.vars[x.value].type in [DT.UINT8]:
+                    if data.vars[x.value].type in [DT.UINT8, DT.UINT16]:
                         stack.append(int.from_bytes(data.vars[x.value].value))
-                        #print(stack, ip)
+                    elif data.vars[x.value].type in [DT.UINT8MEM, DT.UINT16MEM]:
+                        stack.append(int.from_bytes(data.vars[x.value].value))
                     else:
                         error(Error.SIMULATE, "Other types than UINT8 are not implemented yet")
                 else:
                     temp1 = x.value
                     stack.append(int.from_bytes(data.vars[x.value].value))
+                last_type = data.vars[x.value].type
             case OP.SET:
                 state = ComState.VARDEF | ComState.ARITHMETIC
                 stack.pop()
+            case OP.DOS:
+                a = stack.pop()
+                if a == 9:
+                    b = stack.pop()
+                    for x in range(1<<10):
+                        out.write(heap[b+x].decode("ascii"))
+                elif a == 10:
+                    b = stack.pop()
+                    c = input()[:256]
+                    for x in range(min(int.from_bytes(heap[b]),len(c))):
+                        heap[b+2+x] = c[x]
+                    heap[b+1] = bytes(len(c))
+                else:
+                    error(Error.SIMULATE, "only 9 and 10 dos calls are implemented yet")
+            case OP.MEMWRITE:
+                a = stack.pop()
+                b = stack.pop()
+                #print(ip, a, data.vars[temp1].type)
+                match data.vars[temp1].type:
+                    case DT.UINT8MEM:
+                        heap[b] = bfromNum(DT.UINT8, a)
+                    case DT.UINT16MEM:
+                        heap[b:b+2] = bfromNum(DT.UINT16, a)
+                    case _:
+                        error(Error.SIMULATE, "MEM WRITE implemented only to UINT8MEM and UINT16MEM yet!")
+            case OP.MEMREAD:
+                a = stack.pop()
+                match last_type:
+                    case DT.UINT8MEM:
+                        stack.append(int.from_bytes(heap[a]))
+                    case DT.UINT16MEM:
+                        stack.append(int.from_bytes(heap[a:a+2]))
+                    case _:
+                        error(Error.SIMULATE, "MEMREAD implemented only to UINT8MEM and UINT16MEM yet!")
+                #print(stack, [x for x in heap[0:100]])
+
             case OP.COLON:
                 #print(state)
                 if ComState.VARDEF in state:
@@ -321,6 +416,8 @@ def simulate_data(data: codeBlock, out = sys.stdout):
                 state = ComState.NONE
         #print(data.tokens[ip])
         ip += 1
+        #print(stack, heap[0:5], ip, x)
+        #input()
 
 def unpack(arr: list) -> tuple[typing.Any, list]:
     if len(argv) < 1:
@@ -328,16 +425,31 @@ def unpack(arr: list) -> tuple[typing.Any, list]:
     return (arr[0], arr[1:])
 
 alone_token: dict[str, TOKENS] = {
+    ".mem"  : TOKENS.WORD,
+    ",mem"  : TOKENS.WORD,
     "..n"   : TOKENS.WORD,
     ".n"    : TOKENS.WORD,
     ".c"    : TOKENS.WORD,
     "."     : TOKENS.WORD,
 }
 
+set_token: dict[str, TOKENS] = {
+    "#mode" : TOKENS.MODE,
+}
+
+option_token: dict[str, TOKENS] = {
+    "dos"   : COMMODE.DOS,
+}
+
 protected_token: dict[str, TOKENS] = {
     "while" : TOKENS.WORD,
     "copy"  : TOKENS.WORD,
     "else"  : TOKENS.WORD,
+    "u16p"  : TOKENS.TYPE,
+    "u8p"   : TOKENS.TYPE,
+    "u16"   : TOKENS.TYPE,
+    "buf"   : TOKENS.WORD,
+    "dos"   : TOKENS.WORD,
     "if"    : TOKENS.WORD,
     "u8"    : TOKENS.TYPE,
 }
@@ -365,6 +477,9 @@ operand_map: dict[str, OP] = {
     "while" : OP.WHILE,
     "copy"  : OP.COPY,
     "else"  : OP.ELSE,
+    ".mem"  : OP.MEMWRITE,
+    ",mem"  : OP.MEMREAD,
+    "buf"   : OP.BUF,
     "..n"   : OP.PRINT_AND_NL,
     ".n"    : OP.PRINT_NL,
     ".c"    : OP.PRINT_CHAR,
@@ -401,6 +516,9 @@ condition_ops: tuple[OP] = (
 )
 
 type_map: dict[str, DT] = {
+    "u16p"  : DT.UINT16MEM,
+    "u8p"   : DT.UINT8MEM,
+    "u16"   : DT.UINT16,
     "u8"    : DT.UINT8
 }
 
@@ -444,7 +562,7 @@ def Shift_codeBlock(data: codeBlock, shift: int) -> codeBlock:
 
 def Parse_condition_block(data: codeBlock, type: OP) -> list[OpType]:
 
-    if (n:=OP.COUNT.value) != (m:=27):
+    if (n:=OP.COUNT.value) != (m:=32):
         error(Error.ENUM, f"{BOLD_}Exhaustive operation parsing protection in {BOLD_}Parse_condition_block{BACK_}", expected = (m,n), flags = LogFlag.FAIL | LogFlag.EXPECTED)
     if data.type != CB.CONDITION:
         error(Error.PARSE, f"Passed non-condition type codeblock to {BOLD_}Parse_condition_block{BACK_}", flags = LogFlag.FAIL)
@@ -503,7 +621,7 @@ def Parse_condition_block(data: codeBlock, type: OP) -> list[OpType]:
 
 def Third_token_parse(data: codeBlock) -> codeBlock:
     
-    if (n:=OP.COUNT.value) != (m:=27):
+    if (n:=OP.COUNT.value) != (m:=32):
         error(Error.ENUM, f"{BOLD_}Exhaustive operation parsing protection in {BOLD_}Third_token_parse{BACK_}", expected = (m,n), flags = LogFlag.FAIL | LogFlag.EXPECTED)
     if (n:=CB.COUNT.value) != (m:=5):
         error(Error.ENUM, f"{BOLD_}Exhaustive codeBlock parsing protection in {BOLD_}Third_token_parse{BACK_}", expected = (m,n), flags = LogFlag.FAIL | LogFlag.EXPECTED)
@@ -609,7 +727,7 @@ def Third_token_parse(data: codeBlock) -> codeBlock:
 
 def Secound_token_parse(data: codeBlock, index_offset: int = 0) -> codeBlock:
 
-    if (n:=OP.COUNT.value) != (m:=27):
+    if (n:=OP.COUNT.value) != (m:=32):
         error(Error.ENUM, f"{BOLD_}Exhaustive operation parsing protection in {BOLD_}Secound_token_parse{BACK_}", expected = (m,n), flags = LogFlag.FAIL | LogFlag.EXPECTED)
     if (n:=CB.COUNT.value) != (m:=5):
         error(Error.ENUM, f"{BOLD_}Exhaustive codeBlock parsing protection in {BOLD_}Secound_token_parse{BACK_}", expected = (m,n), flags = LogFlag.FAIL | LogFlag.EXPECTED)
@@ -645,7 +763,7 @@ def Secound_token_parse(data: codeBlock, index_offset: int = 0) -> codeBlock:
         
 def First_token_parse(data: list[Token]) -> codeBlock:
 
-    if (n:=OP.COUNT.value) != (m:=27):
+    if (n:=OP.COUNT.value) != (m:=32):
         error(Error.ENUM, f"{BOLD_}Exhaustive operation parsing protection in {BOLD_}First_token_parse{BACK_}", expected = (m,n), flags = LogFlag.FAIL | LogFlag.EXPECTED)
 
 
@@ -659,6 +777,8 @@ def First_token_parse(data: list[Token]) -> codeBlock:
     index = 0
     while index < len(data):
         match data[index].type:
+            case TOKENS.NOTOKEN:
+                index_offset -= 1
             case TOKENS.WORD | TOKENS.OPERAND:
                 codeBlock_stack[-1].tokens.append(OpType(operand_map[data[index].name], index + index_offset))
             case TOKENS.NAME:
@@ -692,14 +812,31 @@ def First_token_parse(data: list[Token]) -> codeBlock:
     return codeBlock_stack[-1]
 
 def Parse_token(file_path: str, loc: tuple[int, int], data: str) -> list[Token]:
-    if (n:=TOKENS.COUNT.value) != (m:=8):
+    global Com_Mode
+
+    if (n:=TOKENS.COUNT.value) != (m:=9):
         error(Error.ENUM, f"{BOLD_}Exhaustive operation parsing protection in {BOLD_}Parse_token{BACK_}", expected = (m,n), flags = LogFlag.FAIL | LogFlag.EXPECTED)
 
     ret: list[Token] = []
-    if data in alone_token:
+
+    if data in set_token:
+        if not loc == (0,len(data)+1) :
+            error(Error.PARSE, f"Compilation option token found not on the begining of a file, but on `{bolden(loc)}`!")
+        Com_Mode = COMMODE.SET
+        ret += [Token(TOKENS.NOTOKEN, data)]
+        data = ""
+    elif Com_Mode == COMMODE.SET:
+        if not data in option_token:
+            error(Error.PARSE, f"Wrong option for `{bolden("#mode")}` probided, found `{bolden(data)}`")
+        Com_Mode = option_token[data]
+        ret += [Token(TOKENS.NOTOKEN, data)]
+        data = ""
+    elif data in alone_token:
         ret += [Token(alone_token[data], data)]
         data = ""
     elif data in protected_token:
+        if data == "dos" and Com_Mode != COMMODE.DOS:
+            error(Error.PARSE, f"Usage of `{bolden("dos")}` token in non-DOS mode of compilation")
         ret += [Token(protected_token[data], data)]
         data = ""
     elif data in indifferent_token:
