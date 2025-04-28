@@ -57,8 +57,9 @@ class TOKENS(Enum):
     CODEOPEN    = auto()
     CODECLOSE   = auto()
     NUM         = auto()
-    COUNT       = auto()
+    STRING      = auto()
     MODE        = auto()
+    COUNT       = auto()
 
 class OP(Enum):
     NUM         = auto()
@@ -110,6 +111,7 @@ class CB(Enum):
 @dataclass
 class Token:
     type:       TOKENS
+    loc:        tuple[str, int, int]
     name:       str
 
 @dataclass
@@ -135,6 +137,7 @@ class codeBlock:
 class OpType:
     type:       OP
     loc:        int
+    file_loc:   tuple[str, int, int]
     value:      typing.Any = None
 
 class Error(Enum):
@@ -192,7 +195,7 @@ def error(errorType: Error, errorStr: str, expected: tuple[typing.Any, typing.An
             error(Error.SELF, f"no `{BOLD_}expected{BACK_}` string for error message with {BOLD_}EXPECTED{BACK_} Flag\n Error message passed > {errorStr}")
         out = out + f"{OKAY_} >>> Expected `{GOOD_}{expected[0]}{OKAY_}` found `{FAIL_}{expected[1]}{OKAY_}`{END_}"
 
-    outfun(out)
+    outfun(out + '\n')
 
     if(errorType == Error.CMD):
         sys.stdout.write(__HELP_STR__ + f"{END_}\n")
@@ -622,8 +625,8 @@ def Parse_condition_block(data: codeBlock, type: OP) -> list[OpType]:
     if condition == None:
         error(Error.PARSE, f"No condition token found", flags = LogFlag.FAIL)
     if type == OP.WHILE:
-        return [OpType(OP.LABEL, (loc:=left[0].loc), f"label{loc}")] + Shift_listOps(left + [condition] + right + [OpType(OP.CONJUMP, right[-1].loc+1)], 1)
-    return left + [condition] + right + [OpType(OP.CONJUMP, right[-1].loc+1)]
+        return [OpType(OP.LABEL, (loc:=left[0].loc), ("",-1,-1), f"label{loc}")] + Shift_listOps(left + [condition] + right + [OpType(OP.CONJUMP, right[-1].loc+1, ("",-1,-1))], 1)
+    return left + [condition] + right + [OpType(OP.CONJUMP, right[-1].loc+1, ("",-1,-1))]
 
 def Third_token_parse(data: codeBlock) -> codeBlock:
     
@@ -671,13 +674,13 @@ def Third_token_parse(data: codeBlock) -> codeBlock:
                 code_token_list: list[OpType] = []
                 data.tokens[index+2] = Shift_codeBlock(data.tokens[index+2], index_offset)
                 if is_else:
-                    data.tokens[index+2].tokens.append(OpType(OP.JUMP, data.tokens[index+2].tokens[-1].loc+1, f"label{data.tokens[index+4].tokens[-1].loc+2+index_offset}"))
-                data.tokens[index+2].tokens.append(OpType(OP.LABEL, (loc:=data.tokens[index+2].tokens[-1].loc+1), f"label{loc}"))
+                    data.tokens[index+2].tokens.append(OpType(OP.JUMP, data.tokens[index+2].tokens[-1].loc+1, ("",-1,-1), f"label{data.tokens[index+4].tokens[-1].loc+2+index_offset}"))
+                data.tokens[index+2].tokens.append(OpType(OP.LABEL, (loc:=data.tokens[index+2].tokens[-1].loc+1), ("",-1,-1), f"label{loc}"))
                 code_token_list += data.tokens[index+2].tokens
                 index_offset += 1
                 if is_else:
                     data.tokens[index+4] = Shift_codeBlock(data.tokens[index+4], index_offset)
-                    data.tokens[index+4].tokens.append(OpType(OP.LABEL, (loc:=data.tokens[index+4].tokens[-1].loc+1), f"label{loc}"))
+                    data.tokens[index+4].tokens.append(OpType(OP.LABEL, (loc:=data.tokens[index+4].tokens[-1].loc+1), ("",-1,-1), f"label{loc}"))
                     code_token_list += data.tokens[index+4].tokens
                     index_offset += 1
                 #for i, x in enumerate(code_token_list):
@@ -712,8 +715,8 @@ def Third_token_parse(data: codeBlock) -> codeBlock:
                     #print("con > >", x, index + index_offset + i)
                 code_token_list: list[OpType] = []
                 data.tokens[index+2] = Shift_codeBlock(data.tokens[index+2], index_offset)
-                data.tokens[index+2].tokens.append(OpType(OP.JUMP, data.tokens[index+2].tokens[-1].loc+1, f"label{con_token_list[0].loc}"))
-                data.tokens[index+2].tokens.append(OpType(OP.LABEL, (loc:=data.tokens[index+2].tokens[-1].loc+1), f"label{loc}"))
+                data.tokens[index+2].tokens.append(OpType(OP.JUMP, data.tokens[index+2].tokens[-1].loc+1, ("",-1,-1), f"label{con_token_list[0].loc}"))
+                data.tokens[index+2].tokens.append(OpType(OP.LABEL, (loc:=data.tokens[index+2].tokens[-1].loc+1), ("",-1,-1), f"label{loc}"))
                 code_token_list += data.tokens[index+2].tokens
                 index_offset += 2
                 #for i, x in enumerate(code_token_list):
@@ -784,13 +787,13 @@ def First_token_parse(data: list[Token]) -> codeBlock:
             case TOKENS.NOTOKEN:
                 index_offset -= 1
             case TOKENS.WORD | TOKENS.OPERAND:
-                codeBlock_stack[-1].tokens.append(OpType(operand_map[data[index].name], index + index_offset))
+                codeBlock_stack[-1].tokens.append(OpType(operand_map[data[index].name], index + index_offset, data[index].loc))
             case TOKENS.NAME:
-                codeBlock_stack[-1].tokens.append(OpType(OP.VAR, index + index_offset, data[index].name))
+                codeBlock_stack[-1].tokens.append(OpType(OP.VAR, index + index_offset, data[index].loc, data[index].name))
             case TOKENS.NUM:
-                codeBlock_stack[-1].tokens.append(OpType(OP.NUM, index + index_offset, int(data[index].name)))
+                codeBlock_stack[-1].tokens.append(OpType(OP.NUM, index + index_offset, data[index].loc, int(data[index].name)))
             case TOKENS.TYPE:
-                codeBlock_stack[-1].tokens.append(OpType(OP.TYPE, index + index_offset, type_map[data[index].name]))
+                codeBlock_stack[-1].tokens.append(OpType(OP.TYPE, index + index_offset, data[index].loc, type_map[data[index].name]))
             case TOKENS.CODEOPEN:
                 codeBlock_stack.append(codeBlock(codeblock_id_index, [], {}))
                 match data[index].name:
@@ -818,33 +821,33 @@ def First_token_parse(data: list[Token]) -> codeBlock:
 def Parse_token(file_path: str, loc: tuple[int, int], data: str) -> list[Token]:
     global Com_Mode
 
-    if (n:=TOKENS.COUNT.value) != (m:=9):
+    if (n:=TOKENS.COUNT.value) != (m:=11):
         error(Error.ENUM, f"{BOLD_}Exhaustive operation parsing protection in {BOLD_}Parse_token{BACK_}", expected = (m,n), flags = LogFlag.FAIL | LogFlag.EXPECTED)
 
     ret: list[Token] = []
 
     if data in set_token:
-        if not loc == (0,len(data)+1) :
+        if not loc == (0,len(data)):
             error(Error.PARSE, f"Compilation option token found not on the begining of a file, but on `{bolden(loc)}`!")
         Com_Mode = COMMODE.SET
-        ret += [Token(TOKENS.NOTOKEN, data)]
+        ret += [Token(TOKENS.NOTOKEN, (file_path,)+loc, data)]
         data = ""
     elif Com_Mode == COMMODE.SET:
         if not data in option_token:
             error(Error.PARSE, f"Wrong option for `{bolden("#mode")}` probided, found `{bolden(data)}`")
         Com_Mode = option_token[data]
-        ret += [Token(TOKENS.NOTOKEN, data)]
+        ret += [Token(TOKENS.NOTOKEN, (file_path,)+loc, data)]
         data = ""
     elif data in alone_token:
-        ret += [Token(alone_token[data], data)]
+        ret += [Token(alone_token[data], (file_path,)+loc, data)]
         data = ""
     elif data in protected_token:
         if data == "dos" and Com_Mode != COMMODE.DOS:
             error(Error.PARSE, f"Usage of `{bolden("dos")}` token in non-DOS mode of compilation")
-        ret += [Token(protected_token[data], data)]
+        ret += [Token(protected_token[data], (file_path,)+loc, data)]
         data = ""
     elif data in indifferent_token:
-        ret += [Token(indifferent_token[data], data)]
+        ret += [Token(indifferent_token[data], (file_path,)+loc, data)]
         data = ""
     else:
         for x in list(alone_token.keys()):
@@ -861,32 +864,14 @@ def Parse_token(file_path: str, loc: tuple[int, int], data: str) -> list[Token]:
                 break
 
         if data.isnumeric():
-            ret += [Token(TOKENS.NUM, data)]
+            ret += [Token(TOKENS.NUM, (file_path,)+loc, data)]
             data = ""
         if data:
             if data[0].isdigit():
                 error(Error.TOKENIZE, f"name token cannot begin with a number", flags = LogFlag.FAIL)
-            ret += [Token(TOKENS.NAME, data)]
+            ret += [Token(TOKENS.NAME, (file_path,)+loc, data)]
             #assert False, "unknown keyword %s" % (data)
 
-    return ret
-
-def Parse_line(file_path: str, line: int, data: str) -> list:
-    ret = []
-    t = ""
-    index = 0
-    if data.find("//") != -1:
-        (before, _, after) = data.partition("//")
-        data = before
-    while index < len(data):
-        if data[index].isspace():
-            ret += Parse_token(file_path, (line, index+1), t)
-            t = ""
-        else:
-            t = t + data[index]
-        index += 1
-    if t:
-        ret += Parse_token(file_path, (line, index+1), t)
     return ret
 
 # debug
@@ -902,10 +887,61 @@ def Print_codeBlock_ops(data: codeBlock, suffix="", color_offset = 0) -> None:
 def Parse_file(input: str) -> list:
     data = []
     with open(input, 'r') as f:
-        data = f.readlines()
+        data = f.read()
+    
+    tokens: list[TOKENS] = []
+
+    token: str = ""
+    index: int = 0
+    slash_before: bool = False
+    string_literal: bool = False
+    loc: tuple[int, int] = (0,0)
+    while index < len(data):
+        match data[index]:
+            case '\\':
+                if slash_before and not string_literal:
+                    token = token + data[index]
+                    index = data.find("\n")+1
+                    if not index:
+                        break
+                    continue
+                else:
+                    slash_before = True
+            case '"':
+                if slash_before:
+                    token = token + data[index]
+                elif string_literal:
+                    tokens.append(Token(TOKENS.STRING, loc, token))
+                    token = ""
+                else:
+                    string_literal = True
+            case '\n':
+                tokens += Parse_token(input, loc, token)
+                token = ""
+                slash_before = False
+                loc = (loc[0]+1, 0)
+            case ' ':
+                if not string_literal:
+                    tokens += Parse_token(input, loc, token)
+                    token = ""
+                else:
+                    token = token + data[index]
+                slash_before = False
+            case x if type(x) == str:
+                token = token + data[index]
+                if slash_before and string_literal:
+                    token = token.encode("utf-8").decode("unicode_escape")
+            case _:
+                error(Error.TOKENIZE, f"{input}:{loc[0]}:{loc[1]} Error while tokenizing file, incorrect character?", expected = ("any character",data[index]), flags = LogFlag.FAIL | LogFlag.EXPECTED)
+        index += 1
+        loc = (loc[0], loc[1]+1)
+    tokens += Parse_token(input, loc, token)
+    token = ""
+
     #for x in [op for row, line in enumerate(data) for op in Parse_line(input, row, line)]:
         #print(x)
-    return Third_token_parse(Secound_token_parse(First_token_parse([op for row, line in enumerate(data) for op in Parse_line(input, row, line)])))
+    print(len(tokens), "<<<<<<<")
+    return Third_token_parse(Secound_token_parse(First_token_parse([tok for tok in tokens])))
     #Print_codeBlock_ops(ops)
     
     #return Parse_jump(resolve_names([op for row, line in enumerate(data) for op in Parse_line(input, row, line)]))
