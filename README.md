@@ -3,12 +3,12 @@
 
 (I quickly dashed off goals, I need to think more about it)
 
-- [partial] - arithmetics
+- [partial+] - arithmetics
 - [partial] - control flow
-- [partial] - stack manipulation
-- [] - compile-time type checking
-- [] - static data manipulation
-- [] - string literals
+- [moved to later] - stack manipulation
+- [mostly done] - compile-time type checking
+- [partial] - static data manipulation
+- [next] - string literals
 - [] - macros
 - [] - functions
 - [] - structures
