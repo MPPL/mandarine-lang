@@ -418,9 +418,8 @@ def simulate_data(data: codeBlock, out = sys.stdout):
                 if ComState.VARDEF in state:
                     data.vars[temp1].value = bytearray(bfromNum(data.vars[temp1].type, stack.pop()))
                 state = ComState.NONE
-        #print(data.tokens[ip])
         ip += 1
-        #print(stack, heap[0:5], ip, x)
+        #print(stack, ip, x)
         #input()
 
 def unpack(arr: list) -> tuple[typing.Any, list]:
@@ -567,6 +566,8 @@ def Shift_codeBlock(data: codeBlock, shift: int) -> codeBlock:
 
 def Parse_condition_block(data: codeBlock, type: OP) -> list[OpType]:
 
+    # FIX LABELS WHEN TESTING? (idk why the problem is here)
+
     if (n:=OP.COUNT.value) != (m:=32):
         error(Error.ENUM, f"{BOLD_}Exhaustive operation parsing protection in {BOLD_}Parse_condition_block{BACK_}", expected = (m,n), flags = LogFlag.FAIL | LogFlag.EXPECTED)
     if data.type != CB.CONDITION:
@@ -664,7 +665,7 @@ def Third_token_parse(data: codeBlock) -> codeBlock:
                             error(Error.PARSE, "ELSE - NO CODEBLOCK", flags = LogFlag.FAIL)
                         is_else = True
                 con_token_list[-1].loc = con_token_list[-2].loc+1
-                con_token_list[-1].value = f"label{data.tokens[index+2].tokens[-1].loc+1+index_offset+int(is_else)}"
+                con_token_list[-1].value = f"label{data.tokens[index+2].tokens[-1].loc+1+index_offset}"
                 #for i, x in enumerate(con_token_list):
                     #print("con > >", x, index + index_offset + i)
                 code_token_list: list[OpType] = []
@@ -674,11 +675,11 @@ def Third_token_parse(data: codeBlock) -> codeBlock:
                 data.tokens[index+2].tokens.append(OpType(OP.LABEL, (loc:=data.tokens[index+2].tokens[-1].loc+1), f"label{loc}"))
                 code_token_list += data.tokens[index+2].tokens
                 index_offset += 1
-
-                data.tokens[index+4] = Shift_codeBlock(data.tokens[index+4], index_offset)
-                data.tokens[index+4].tokens.append(OpType(OP.LABEL, (loc:=data.tokens[index+4].tokens[-1].loc+1), f"label{loc}"))
-                code_token_list += data.tokens[index+4].tokens
-                index_offset += 1
+                if is_else:
+                    data.tokens[index+4] = Shift_codeBlock(data.tokens[index+4], index_offset)
+                    data.tokens[index+4].tokens.append(OpType(OP.LABEL, (loc:=data.tokens[index+4].tokens[-1].loc+1), f"label{loc}"))
+                    code_token_list += data.tokens[index+4].tokens
+                    index_offset += 1
                 #for i, x in enumerate(code_token_list):
                     #print("code > >", x, index + len(con_token_list)+1 + i)
                 
@@ -695,8 +696,6 @@ def Third_token_parse(data: codeBlock) -> codeBlock:
                 if index+2 >= len(data.tokens):
                     error()
                 if data.tokens[index+1].type != CB.CONDITION:
-                    for x in data.tokens:
-                        print("???",x)
                     error(Error.PARSE, f"Non Condition codeBlock after While at `{index}`")
                 # Update Parse_condition_block to
                 # 
@@ -771,8 +770,8 @@ def First_token_parse(data: list[Token]) -> codeBlock:
     if (n:=OP.COUNT.value) != (m:=32):
         error(Error.ENUM, f"{BOLD_}Exhaustive operation parsing protection in {BOLD_}First_token_parse{BACK_}", expected = (m,n), flags = LogFlag.FAIL | LogFlag.EXPECTED)
 
-
-    ret: codeBlock = codeBlock(0)
+    # ret: codeBlock = codeBlock(0) this line was bugging tests, actually stupid bug
+    ret: codeBlock = codeBlock(0, [], {})
 
     codeBlock_stack: list[codeBlock] = [ret]
     
@@ -906,9 +905,9 @@ def Parse_file(input: str) -> list:
         data = f.readlines()
     #for x in [op for row, line in enumerate(data) for op in Parse_line(input, row, line)]:
         #print(x)
-    ops: list[OpType] = Third_token_parse(Secound_token_parse(First_token_parse([op for row, line in enumerate(data) for op in Parse_line(input, row, line)])))
+    return Third_token_parse(Secound_token_parse(First_token_parse([op for row, line in enumerate(data) for op in Parse_line(input, row, line)])))
     #Print_codeBlock_ops(ops)
-    return ops
+    
     #return Parse_jump(resolve_names([op for row, line in enumerate(data) for op in Parse_line(input, row, line)]))
 
 # ------------------------------------------------------
@@ -928,13 +927,11 @@ class dataHolder:
 def record_test():
     for x in glob.glob("./tests/*.mand"):
         with open(x[:-5]+".txt", "w") as f:
-            print(x)
             simulate_data(Parse_file(x), out = f)
 
 def compare_test():
     for x in glob.glob("./tests/*.mand"):
         dh: dataHolder = dataHolder()
-        print(x)
         simulate_data(Parse_file(x), out = dh)
         if not dh.compare_with_file(x[:-5]+".txt"):
             error(Error.TEST, f"{BOLD_}{x}{BACK_} Test Failed\n", flags = LogFlag.WARNING, exitAfter = False)

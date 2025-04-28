@@ -1,5 +1,5 @@
 u8 loop = 10;
 while(loop > 0){ //while loop
     loop ..n ;
-    loop = loop 1 -;
+    loop = loop 1-;
 }
