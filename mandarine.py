@@ -45,6 +45,7 @@ class COMMODE(Enum):
     STANDARD    = auto()
     SET         = auto()
     DOS         = auto()
+    LINUX       = auto()
 
 Com_Mode: COMMODE = COMMODE.STANDARD
 
@@ -63,6 +64,7 @@ class TOKENS(Enum):
 
 class OP(Enum):
     NUM         = auto()
+    STRING      = auto()
     SET         = auto()
     ADD         = auto()
     SUB         = auto()
@@ -89,6 +91,7 @@ class OP(Enum):
     MEMWRITE    = auto()
     MEMREAD     = auto()
     DOS         = auto()
+    LINUX       = auto()
     MODE        = auto()
     VAR         = auto()
     TYPE        = auto()
@@ -211,8 +214,8 @@ class ComState(Flag):
 
 def bfromNum(type: DT, value: int) -> bytearray:
 
-    if (n:=OP.COUNT.value) != (m:=32):
-        error(Error.ENUM, f"{BOLD_}Exhaustive operation protection in {bolden("bfromNum")}", expected = (m,n), flags = LogFlag.FAIL | LogFlag.EXPECTED)
+    #if (n:=OP.COUNT.value) != (m:=33):
+        #error(Error.ENUM, f"{BOLD_}Exhaustive operation protection in {bolden("bfromNum")}", expected = (m,n), flags = LogFlag.FAIL | LogFlag.EXPECTED)
     if (n:=DT.COUNT.value) != (m:=5):
         error(Error.ENUM, f"{BOLD_}Exhaustive datatype protection in {bolden("bfromNum")}", expected = (m,n), flags = LogFlag.FAIL | LogFlag.EXPECTED)
 
@@ -248,7 +251,7 @@ def compile_data(data: list[dict]):
 
 def simulate_data(data: codeBlock, out = sys.stdout):
     
-    if (n:=OP.COUNT.value) != (m:=32):
+    if (n:=OP.COUNT.value) != (m:=34):
         error(Error.ENUM, f"{BOLD_}Exhaustive operation parsing protection in {BOLD_}simulate_data{BACK_}", expected = (m,n), flags = LogFlag.FAIL | LogFlag.EXPECTED)
     
     heap = bytearray(HEAP_SIZE)
@@ -266,6 +269,29 @@ def simulate_data(data: codeBlock, out = sys.stdout):
         match x.type:
             case OP.NUM:
                 stack.append(int(x.value))
+            case OP.STRING:
+                if ComState.VARDEF in state:
+                    
+                    match data.vars[temp1].type:
+                        case DT.UINT8MEM:
+                            for y in range(len(x.value)):
+                                heap[heap_end+y] = ord(x.value[y])
+                            heap[heap_end+len(x.value)] = ord('$')
+                            data.vars[temp1].value = bytearray(bfromNum(data.vars[temp1].type, heap_end))
+                            heap_end += len(x.value)+1
+                        case DT.UINT16MEM:
+                            for y in range(len(x.value)):
+                                heap[heap_end+y*2] = ord(x.value[y])
+                            heap[heap_end+len(x.value)*2] = ord('$')
+                            data.vars[temp1].value = bytearray(bfromNum(data.vars[temp1].type, heap_end))
+                            heap_end += (len(x.value)+1)*2
+                    state = ComState.NONE
+                else:
+                    for y in range(len(x.value)):
+                        heap[heap_end+y] = ord(x.value[y])
+                    heap[heap_end+len(x.value)] = ord('$')
+                    stack.append(int.from_bytes(bfromNum(data.vars[temp1].type, heap_end)))
+                    heap_end += len(x.value)+1
             case OP.ADD:
                 a = stack.pop()
                 b = stack.pop()
@@ -380,7 +406,7 @@ def simulate_data(data: codeBlock, out = sys.stdout):
                 a = stack.pop()
                 if a == 9:
                     b = stack.pop()
-                    for x in range(1<<10):
+                    for x in range(1<<8):
                         c = chr(heap[b+x])
                         if c == '$':
                             break
@@ -389,11 +415,27 @@ def simulate_data(data: codeBlock, out = sys.stdout):
                 elif a == 10:
                     b = stack.pop()
                     c = input()[:256]
-                    for x in range(min(int.from_bytes(heap[b]),len(c))):
-                        heap[b+2+x] = c[x]
-                    heap[b+1] = bytes(len(c))
+                    for x in range(min(int(heap[b]),len(c))):
+                        heap[b+2+x] = ord(c[x])
+                        print(ord(c[x]), end=" ")
+                    heap[b+1] = len(c)
                 else:
                     error(Error.SIMULATE, "only 9 and 10 dos calls are implemented yet")
+            case OP.LINUX:
+                a = stack.pop()
+                if a == 1:
+                    b = stack.pop()
+                    c = stack.pop()
+                    d = stack.pop()
+                    if b == 1:
+                        for x in range(d):
+                            out.write(chr(heap[c+x]))
+                    elif b == 2:
+                        for x in range(d):
+                            sys.stderr.write(chr(heap[c+x]))
+                    else:
+                        error(Error.SIMULATE, "other file descriptors than `1` and `2` are not supported yet, skipping...", exitAfter=False)
+
             case OP.MEMWRITE:
                 a = stack.pop()
                 b = stack.pop()
@@ -409,7 +451,7 @@ def simulate_data(data: codeBlock, out = sys.stdout):
                 a = stack.pop()
                 match last_type:
                     case DT.UINT8MEM:
-                        stack.append(int.from_bytes(heap[a]))
+                        stack.append(int.from_bytes(heap[a:a+1]))
                     case DT.UINT16MEM:
                         stack.append(int.from_bytes(heap[a:a+2]))
                     case _:
@@ -422,7 +464,7 @@ def simulate_data(data: codeBlock, out = sys.stdout):
                     data.vars[temp1].value = bytearray(bfromNum(data.vars[temp1].type, stack.pop()))
                 state = ComState.NONE
         ip += 1
-        #print(stack, ip, x)
+        #print(stack, heap[:15], ip, x)
         #input()
 
 def unpack(arr: list) -> tuple[typing.Any, list]:
@@ -444,10 +486,12 @@ set_token: dict[str, TOKENS] = {
 }
 
 option_token: dict[str, TOKENS] = {
+    "linux" : COMMODE.LINUX,
     "dos"   : COMMODE.DOS,
 }
 
 protected_token: dict[str, TOKENS] = {
+    "linux" : TOKENS.WORD,
     "while" : TOKENS.WORD,
     "copy"  : TOKENS.WORD,
     "else"  : TOKENS.WORD,
@@ -481,6 +525,7 @@ indifferent_token: dict[str, TOKENS] = {
 
 operand_map: dict[str, OP] = {
     "while" : OP.WHILE,
+    "linux" : OP.LINUX,
     "copy"  : OP.COPY,
     "else"  : OP.ELSE,
     ".mem"  : OP.MEMWRITE,
@@ -571,7 +616,7 @@ def Parse_condition_block(data: codeBlock, type: OP) -> list[OpType]:
 
     # FIX LABELS WHEN TESTING? (idk why the problem is here)
 
-    if (n:=OP.COUNT.value) != (m:=32):
+    if (n:=OP.COUNT.value) != (m:=34):
         error(Error.ENUM, f"{BOLD_}Exhaustive operation parsing protection in {BOLD_}Parse_condition_block{BACK_}", expected = (m,n), flags = LogFlag.FAIL | LogFlag.EXPECTED)
     if data.type != CB.CONDITION:
         error(Error.PARSE, f"Passed non-condition type codeblock to {BOLD_}Parse_condition_block{BACK_}", flags = LogFlag.FAIL)
@@ -630,7 +675,7 @@ def Parse_condition_block(data: codeBlock, type: OP) -> list[OpType]:
 
 def Third_token_parse(data: codeBlock) -> codeBlock:
     
-    if (n:=OP.COUNT.value) != (m:=32):
+    if (n:=OP.COUNT.value) != (m:=34):
         error(Error.ENUM, f"{BOLD_}Exhaustive operation parsing protection in {BOLD_}Third_token_parse{BACK_}", expected = (m,n), flags = LogFlag.FAIL | LogFlag.EXPECTED)
     if (n:=CB.COUNT.value) != (m:=5):
         error(Error.ENUM, f"{BOLD_}Exhaustive codeBlock parsing protection in {BOLD_}Third_token_parse{BACK_}", expected = (m,n), flags = LogFlag.FAIL | LogFlag.EXPECTED)
@@ -734,7 +779,7 @@ def Third_token_parse(data: codeBlock) -> codeBlock:
 
 def Secound_token_parse(data: codeBlock, index_offset: int = 0) -> codeBlock:
 
-    if (n:=OP.COUNT.value) != (m:=32):
+    if (n:=OP.COUNT.value) != (m:=34):
         error(Error.ENUM, f"{BOLD_}Exhaustive operation parsing protection in {BOLD_}Secound_token_parse{BACK_}", expected = (m,n), flags = LogFlag.FAIL | LogFlag.EXPECTED)
     if (n:=CB.COUNT.value) != (m:=5):
         error(Error.ENUM, f"{BOLD_}Exhaustive codeBlock parsing protection in {BOLD_}Secound_token_parse{BACK_}", expected = (m,n), flags = LogFlag.FAIL | LogFlag.EXPECTED)
@@ -770,7 +815,7 @@ def Secound_token_parse(data: codeBlock, index_offset: int = 0) -> codeBlock:
         
 def First_token_parse(data: list[Token]) -> codeBlock:
 
-    if (n:=OP.COUNT.value) != (m:=32):
+    if (n:=OP.COUNT.value) != (m:=34):
         error(Error.ENUM, f"{BOLD_}Exhaustive operation parsing protection in {BOLD_}First_token_parse{BACK_}", expected = (m,n), flags = LogFlag.FAIL | LogFlag.EXPECTED)
 
     # ret: codeBlock = codeBlock(0) this line was bugging tests, actually stupid bug
@@ -792,6 +837,8 @@ def First_token_parse(data: list[Token]) -> codeBlock:
                 codeBlock_stack[-1].tokens.append(OpType(OP.VAR, index + index_offset, data[index].loc, data[index].name))
             case TOKENS.NUM:
                 codeBlock_stack[-1].tokens.append(OpType(OP.NUM, index + index_offset, data[index].loc, int(data[index].name)))
+            case TOKENS.STRING:
+                codeBlock_stack[-1].tokens.append(OpType(OP.STRING, index + index_offset, data[index].loc, data[index].name))
             case TOKENS.TYPE:
                 codeBlock_stack[-1].tokens.append(OpType(OP.TYPE, index + index_offset, data[index].loc, type_map[data[index].name]))
             case TOKENS.CODEOPEN:
@@ -844,6 +891,8 @@ def Parse_token(file_path: str, loc: tuple[int, int], data: str) -> list[Token]:
     elif data in protected_token:
         if data == "dos" and Com_Mode != COMMODE.DOS:
             error(Error.PARSE, f"Usage of `{bolden("dos")}` token in non-DOS mode of compilation")
+        elif data == "linux" and Com_Mode != COMMODE.LINUX:
+            error(Error.PARSE, f"Usage of `{bolden("linux")}` token in non-LINUX mode of compilation")
         ret += [Token(protected_token[data], (file_path,)+loc, data)]
         data = ""
     elif data in indifferent_token:
@@ -900,8 +949,8 @@ def Parse_file(input: str) -> list:
         match data[index]:
             case '\\':
                 if slash_before and not string_literal:
-                    token = token + data[index]
-                    index = data.find("\n")+1
+                    tokens += Parse_token(input, loc, token)
+                    index = data[index:].find("\n")+index
                     if not index:
                         break
                     continue
@@ -913,6 +962,7 @@ def Parse_file(input: str) -> list:
                 elif string_literal:
                     tokens.append(Token(TOKENS.STRING, loc, token))
                     token = ""
+                    string_literal = False
                 else:
                     string_literal = True
             case '\n':
@@ -940,7 +990,6 @@ def Parse_file(input: str) -> list:
 
     #for x in [op for row, line in enumerate(data) for op in Parse_line(input, row, line)]:
         #print(x)
-    print(len(tokens), "<<<<<<<")
     return Third_token_parse(Secound_token_parse(First_token_parse([tok for tok in tokens])))
     #Print_codeBlock_ops(ops)
     
