@@ -68,6 +68,7 @@ class OP(Enum):
     ADD         = auto()
     SUB         = auto()
     MUL         = auto()
+    DIV         = auto()
     SHL         = auto()
     SHR         = auto()
     EQUAL       = auto()
@@ -121,6 +122,7 @@ class Var:
     type: DT
     name: str
     value: bytearray = field(default_factory=bytearray)
+    defined: bool = field(default=False)
 class codeBlock:
     id:         int = -1
     type:       CB = CB.COMPILETIME
@@ -234,10 +236,9 @@ def bfromNum(type: DT, value: int) -> bytearray:
 
 
 def compile_data(data: list[dict]) -> None:
-    assert False, "not implemented yet"
 
-    if (n:=OP.COUNT.value) != (m:=32):
-        error(Error.ENUM, f"{BOLD_}Exhaustive operation parsing protection in {BOLD_}simulate_data{BACK_}", expected = (m,n), flags = LogFlag.FAIL | LogFlag.EXPECTED)
+    if (n:=OP.COUNT.value) != (m:=35):
+        error(Error.ENUM, f"{BOLD_}Exhaustive operation parsing protection in {BOLD_}compile_data{BACK_}", expected = (m,n), flags = LogFlag.FAIL | LogFlag.EXPECTED)
     
     heap = bytearray(HEAP_SIZE)
     heap_end = 0
@@ -248,14 +249,17 @@ def compile_data(data: list[dict]) -> None:
     condition: OP
     last_type: DT
     debug_counter = -1
+    begin_arith: bool = False
     
     buffor_start: str = ""
     buffor_data: str = ""
     buffor_code: str = ""
+
+    ax_used: bool = False
     
     if Com_Mode == COMMODE.LINUX:
         buffor_start = buffor_start + "format ELF64 executable 3\nsegment readable executable\n"
-        buffor_code = buffor_code + "entrymain\nmain\n"
+        buffor_code = buffor_code + "entry main\nmain\n"
         for x in data:
             match x.type:
                 case OP.NUM:
@@ -265,11 +269,460 @@ def compile_data(data: list[dict]) -> None:
                 case OP.COLON:
                     pass
     elif Com_Mode == COMMODE.DOS:
-        buffor_start = buffor_start + ""
+        buffor_start = buffor_start + ".MODEL SMALL\n.STACK 100h\n"
+        buffor_data = buffor_data + ".DATA\n"
+        buffor_code = buffor_code + ".CODE\nstart:\n\tmov ax, @data\n\tmov ds, ax\n"
+
+        for x in data.tokens:
+            match x.type:
+                case OP.NUM:
+                    stack.append(int(x.value))
+                case OP.STRING:
+                    if ComState.VARDEF in state:
+                        
+                        match data.vars[temp1].type:
+                            case DT.UINT8MEM:
+                                while (n:=x.value).find('\\n') != -1:
+                                    (string_before, string_center, string_after) = x.value.partition('\\n')
+                                    x.value = f"{string_before}\", 10,\"{string_after}"
+                                buffor_data = buffor_data + f"\t{data.vars[temp1].name} db \"{x.value}$\"\n"
+                                #for y in range(len(x.value)):
+                                    #heap[heap_end+y] = ord(x.value[y])
+                                #heap[heap_end+len(x.value)] = ord('$')
+                                #data.vars[temp1].value = bytearray(bfromNum(data.vars[temp1].type, heap_end))
+                                #heap_end += len(x.value)+1
+                            case DT.UINT16MEM:
+                                while (n:=x.value).find('\\n') != -1:
+                                    (string_before, string_center, string_after) = x.value.partition('\\n')
+                                    x.value = f"{string_before}\", 10,\"{string_after}"
+                                buffor_data = buffor_data + f"\t{data.vars[temp1].name} dw \"{x.value}$\"\n"
+                                #for y in range(len(x.value)):
+                                    #heap[heap_end+y*2] = ord(x.value[y])
+                                #heap[heap_end+len(x.value)*2] = ord('$')
+                                #data.vars[temp1].value = bytearray(bfromNum(data.vars[temp1].type, heap_end))
+                                #heap_end += (len(x.value)+1)*2
+                        state = ComState.NONE
+                    else:
+                        stack.append(data.vars[temp1].name)
+                        ###buffor_code += buffor_code + f"\tmov ax, {data.vars[temp1].name}"
+                        #for y in range(len(x.value)):
+                            #heap[heap_end+y] = ord(x.value[y])
+                        #heap[heap_end+len(x.value)] = ord('$')
+                        #stack.append(int.from_bytes(bfromNum(data.vars[temp1].type, heap_end)))
+                        #heap_end += len(x.value)+1
+                case OP.ADD:
+                    if begin_arith:
+                        a = stack.pop()
+                        buffor_code = buffor_code + f"\tadd ax, {a if isinstance(a, int) else f'[{a}]'}\n"
+                    else:
+                        begin_arith = True
+                        a = stack.pop()
+                        b = stack.pop()
+                        if isinstance(b, int):
+                            ax_used = True
+                            buffor_code = buffor_code + f"\tmov ax, {b}\n"
+                        else:
+                            if data.vars[b].type in [DT.UINT8]:
+                                if ax_used:
+                                    buffor_code = buffor_code + f"\txor ax, ax\n"
+                                    ax_used = False
+                                buffor_code = buffor_code + f"\tmov al, [{b}]\n"
+                            elif data.vars[b].type in [DT.UINT16]:
+                                ax_used = True
+                                buffor_code = buffor_code + f"\tmov ax, [{b}]\n"
+                            else:
+                                error(Error.COMPILE, f"Unknown type, {data.vars[b].type}")
+                        buffor_code = buffor_code + f"\tadd ax, {a if isinstance(a, int) else f'[{a}]'}\n"
+                case OP.SUB:
+                    if begin_arith:
+                        a = stack.pop()
+                        buffor_code = buffor_code + f"\tsub ax, {a if isinstance(a, int) else f'[{a}]'}\n"
+                    else:
+                        begin_arith = True
+                        a = stack.pop()
+                        b = stack.pop()
+                        if isinstance(b, int):
+                            ax_used = True
+                            buffor_code = buffor_code + f"\tmov ax, {b}\n"
+                        else:
+                            if data.vars[b].type in [DT.UINT8]:
+                                if ax_used:
+                                    buffor_code = buffor_code + f"\txor ax, ax\n"
+                                    ax_used = False
+                                buffor_code = buffor_code + f"\tmov al, [{b}]\n"
+                            elif data.vars[b].type in [DT.UINT16]:
+                                ax_used = True
+                                buffor_code = buffor_code + f"\tmov ax, [{b}]\n"
+                            else:
+                                error(Error.COMPILE, f"Unknown type, {data.vars[b].type}")
+                        buffor_code = buffor_code + f"\tsub ax, {a if isinstance(a, int) else f'[{a}]'}\n"
+                case OP.MUL:
+                    if begin_arith:
+                        a = stack.pop()
+                        buffor_code = buffor_code + f"\tmul {a if isinstance(a, int) else f'[{a}]'}\n"
+                    else:
+                        begin_arith = True
+                        a = stack.pop()
+                        b = stack.pop()
+                        if isinstance(b, int):
+                            ax_used = True
+                            buffor_code = buffor_code + f"\tmov ax, {b}\n"
+                        else:
+                            if data.vars[b].type in [DT.UINT8]:
+                                if ax_used:
+                                    buffor_code = buffor_code + f"\txor ax, ax\n"
+                                    ax_used = False
+                                buffor_code = buffor_code + f"\tmov al, [{b}]\n"
+                            elif data.vars[b].type in [DT.UINT16]:
+                                ax_used = True
+                                buffor_code = buffor_code + f"\tmov ax, [{b}]\n"
+                            else:
+                                error(Error.COMPILE, f"Unknown type, {data.vars[b].type}")
+                        buffor_code = buffor_code + f"\tmul {a if isinstance(a, int) else f'[{a}]'}\n"
+                case OP.DIV:
+                    if begin_arith:
+                        a = stack.pop()
+                        buffor_code = buffor_code + f"\tdiv BYTE {a if isinstance(a, int) else f'[{a}]'}\n"
+                    else:
+                        begin_arith = True
+                        a = stack.pop()
+                        b = stack.pop()
+                        if isinstance(b, int):
+                            ax_used = True
+                            buffor_code = buffor_code + f"\tmov ax, {b}\n"
+                        else:
+                            if data.vars[b].type in [DT.UINT8]:
+                                if ax_used:
+                                    buffor_code = buffor_code + f"\txor ax, ax\n"
+                                    ax_used = False
+                                buffor_code = buffor_code + f"\tmov al, [{b}]\n"
+                            elif data.vars[b].type in [DT.UINT16]:
+                                ax_used = True
+                                buffor_code = buffor_code + f"\tmov ax, [{b}]\n"
+                            else:
+                                error(Error.COMPILE, f"Unknown type, {data.vars[b].type}")
+                        buffor_code = buffor_code + f"\tdiv BYTE {a if isinstance(a, int) else f'[{a}]'}\n"
+                        buffor_code = buffor_code + f"\txor ah, ah\n"
+                case OP.SHL:
+                    if begin_arith:
+                        a = stack.pop()
+                        ax_used = True
+                        if isinstance(a, int):
+                            buffor_code = buffor_code + f"\tshl ax, {a}\n"
+                        else:
+                            buffor_code = buffor_code + f"\tmov cl, [{a}]\n"
+                            buffor_code = buffor_code + f"\tshl ax, cl\n"
+                    else:
+                        begin_arith = True
+                        a = stack.pop()
+                        b = stack.pop()
+                        ax_used = True
+                        if isinstance(b, int):
+                            buffor_code = buffor_code + f"\tmov ax, {a}\n"
+                            buffor_code = buffor_code + f"\tshl ax, {b}\n"
+                        else:
+                            buffor_code = buffor_code + f"\tmov ax, {a}\n"
+                            buffor_code = buffor_code + f"\tmov cl, [{b}]\n"
+                            buffor_code = buffor_code + f"\tshl ax, cl\n"
+                case OP.SHR:
+                    if begin_arith:
+                        a = stack.pop()
+                        ax_used = True
+                        if isinstance(a, int):
+                            buffor_code = buffor_code + f"\tshr ax, {a}\n"
+                        else:
+                            buffor_code = buffor_code + f"\tmov cl, [{a}]\n"
+                            buffor_code = buffor_code + f"\tshr ax, cl\n"
+                    else:
+                        begin_arith = True
+                        a = stack.pop()
+                        b = stack.pop()
+                        ax_used = True
+                        if isinstance(a, int):
+                            buffor_code = buffor_code + f"\tmov ax, {a}\n"
+                            buffor_code = buffor_code + f"\tshr ax, {b}\n"
+                        else:
+                            buffor_code = buffor_code + f"\tmov ax, {a}\n"
+                            buffor_code = buffor_code + f"\tmov cl, [{b}]\n"
+                            buffor_code = buffor_code + f"\tshr ax, cl\n"
+                case OP.IF:
+                    state = ComState.CONDITION
+                case OP.WHILE:
+                    state = ComState.CONDITION
+                case OP.EQUAL:
+                    if len(stack) > 0:
+                        a = stack.pop()
+                        if isinstance(a, int):
+                            buffor_code = buffor_code + f"\tmov bx, {a}\n"
+                        else:
+                            if data.vars[a].type in [DT.UINT8]:
+                                buffor_code = buffor_code + f"\tmov bl, [{a}]\n"
+                            elif data.vars[a].type in [DT.UINT16]:
+                                buffor_code = buffor_code + f"\tmov bx, [{a}]\n"
+                            else:
+                                error(Error.COMPILE, "unknown type for comparison")
+                    else:
+                        buffor_code = buffor_code + f"\tmov bx, ax\n"
+                    buffor_code = buffor_code + f"\tmov bx, ax\n"
+                    condition = x.type
+                case OP.GREATER:
+                    if len(stack) > 0:
+                        a = stack.pop()
+                        if isinstance(a, int):
+                            buffor_code = buffor_code + f"\tmov bx, {a}\n"
+                        else:
+                            if data.vars[a].type in [DT.UINT8]:
+                                buffor_code = buffor_code + f"\txor bx, bx\n"
+                                buffor_code = buffor_code + f"\tmov bl, [{a}]\n"
+                            elif data.vars[a].type in [DT.UINT16]:
+                                buffor_code = buffor_code + f"\tmov bx, [{a}]\n"
+                            else:
+                                error(Error.COMPILE, "unknown type for comparison")
+                    else:
+                        buffor_code = buffor_code + f"\tmov bx, ax\n"
+                    condition = x.type
+                case OP.LESS:
+                    if len(stack) > 0:
+                        a = stack.pop()
+                        if isinstance(a, int):
+                            buffor_code = buffor_code + f"\tmov bx, {a}\n"
+                        else:
+                            if data.vars[a].type in [DT.UINT8]:
+                                buffor_code = buffor_code + f"\tmov bl, [{a}]\n"
+                            elif data.vars[a].type in [DT.UINT16]:
+                                buffor_code = buffor_code + f"\tmov bx, [{a}]\n"
+                            else:
+                                error(Error.COMPILE, "unknown type for comparison")
+                    else:
+                        buffor_code = buffor_code + f"\tmov bx, ax\n"
+                    condition = x.type
+                case OP.GE:
+                    if len(stack) > 0:
+                        a = stack.pop()
+                        if isinstance(a, int):
+                            buffor_code = buffor_code + f"\tmov bx, {a}\n"
+                        else:
+                            if data.vars[a].type in [DT.UINT8]:
+                                buffor_code = buffor_code + f"\tmov bl, [{a}]\n"
+                            elif data.vars[a].type in [DT.UINT16]:
+                                buffor_code = buffor_code + f"\tmov bx, [{a}]\n"
+                            else:
+                                error(Error.COMPILE, "unknown type for comparison")
+                    else:
+                        buffor_code = buffor_code + f"\tmov bx, ax\n"
+                    condition = x.type
+                case OP.LE:
+                    if len(stack) > 0:
+                        a = stack.pop()
+                        if isinstance(a, int):
+                            buffor_code = buffor_code + f"\tmov bx, {a}\n"
+                        else:
+                            if data.vars[a].type in [DT.UINT8]:
+                                buffor_code = buffor_code + f"\tmov bl, [{a}]\n"
+                            elif data.vars[a].type in [DT.UINT16]:
+                                buffor_code = buffor_code + f"\tmov bx, [{a}]\n"
+                            else:
+                                error(Error.COMPILE, "unknown type for comparison")
+                    else:
+                        buffor_code = buffor_code + f"\tmov bx, ax\n"
+                    condition = x.type
+                case OP.CONJUMP:
+                    if len(stack) > 0:
+                        a = stack.pop()
+                        if isinstance(a, int):
+                            buffor_code = buffor_code + f"\tmov ax, {a}\n"
+                        else:
+                            if data.vars[a].type in [DT.UINT8]:
+                                if ax_used:
+                                    buffor_code = buffor_code + f"\txor ax, ax\n"
+                                    ax_used = False
+                                buffor_code = buffor_code + f"\tmov al, [{a}]\n"
+                            elif data.vars[a].type in [DT.UINT16]:
+                                ax_used = True
+                                buffor_code = buffor_code + f"\tmov ax, [{a}]\n"
+                            else:
+                                error(Error.COMPILE, "unknown type for comparison")
+                    else:
+                        pass
+                    buffor_code = buffor_code + "\tcmp ax, bx\n"
+                    state = ComState.NONE
+                    match condition:
+                        case OP.EQUAL:
+                            buffor_code = buffor_code + f"\tje {x.value}\n"
+                        case OP.GREATER:
+                            buffor_code = buffor_code + f"\tjg {x.value}\n"
+                        case OP.LESS:
+                            buffor_code = buffor_code + f"\tjl {x.value}\n"
+                        case OP.GE:
+                            buffor_code = buffor_code + f"\tjge {x.value}\n"
+                        case OP.LE:
+                            buffor_code = buffor_code + f"\tjle {x.value}\n"
+                case OP.JUMP:
+                    buffor_code = buffor_code + f"\tjmp {x.value}\n"
+                    state = ComState.NONE
+                case OP.LABEL:
+                    buffor_code = buffor_code + f"{x.value}:\n"
+                case OP.COPY:
+                    a = stack.pop()
+                    stack.append(a)
+                    stack.append(a)
+                case OP.PRINT:
+                    a = stack.pop()
+                    #out.write(str(a))
+                case OP.PRINT_NL:
+                    #out.write('\n')
+                    pass
+                case OP.PRINT_AND_NL:
+                    a = stack.pop()
+                    #out.write(str(a))
+                    #out.write('\n')
+                case OP.PRINT_CHAR:
+                    a = stack.pop()
+                    #out.write(chr(a))
+                case OP.TYPE:
+                    pass
+                case OP.BUF:
+                    if ComState.VARDEF in state:
+                        match data.vars[temp1].type:
+                            case DT.UINT8MEM:
+                                a = stack.pop()
+                                buffor_data += buffor_data + f"\t{data.vars[temp1].name} db {a} dup (?)\n"
+                            case DT.UINT16MEM:
+                                a = stack.pop()
+                                buffor_data += buffor_data + f"\t{data.vars[temp1].name} dw {a} dup (?)\n"
+                        #data.vars[temp1].value
+                        state = ComState.NONE
+                    else:
+                        error(Error.COMPILE, "Buf used in wrong position")
+                case OP.VAR:
+                    #print(stack, ip, state)
+                    if ComState.ARITHMETIC in state or ComState.CONDITION in state:
+                        if data.vars[x.value].type in [DT.UINT8, DT.UINT16]:
+                            #buffor_code += buffor_code + f"\t{data.vars[x.value].name} dw {a} dup (?)\n"
+                            stack.append(data.vars[x.value].name)
+                        elif data.vars[x.value].type in [DT.UINT8MEM, DT.UINT16MEM]:
+                            stack.append(data.vars[x.value].name)
+                        else:
+                            error(Error.COMPILE, "Only u8, u16, u8p and u16p are implemented yet")
+                    else:
+                        temp1 = x.value
+                        if not data.vars[x.value].defined:
+                            if data.vars[x.value].type in [DT.UINT8]:
+                                buffor_data = buffor_data + f"\t{data.vars[temp1].name} db ?\n"
+                            elif data.vars[x.value].type in [DT.UINT16]:
+                                buffor_data = buffor_data + f"\t{data.vars[temp1].name} dw ?\n"
+                            data.vars[x.value].defined = True
+                        stack.append(data.vars[x.value].name)
+                    last_type = data.vars[x.value].type
+                case OP.SET:
+                    state = ComState.VARDEF | ComState.ARITHMETIC
+                    stack.pop()
+                case OP.DOS:
+                    a = stack.pop()
+                    if a == 9:
+                        if ax_used:
+                            buffor_code = buffor_code + "\txor ax, ax\n"  
+                        ax_used = True
+                        buffor_code = buffor_code + "\tmov ah, 9\n"
+                        b = stack.pop()
+                        if isinstance(b, str):
+                            buffor_code = buffor_code + f"\tmov dx, offset {b}\n"
+                        else:
+                            error(Error.COMPILE, "int type in dos call for address")
+                        buffor_code = buffor_code + "\tint 21h\n"
+                    elif a == 10:
+                        if ax_used:
+                            buffor_code = buffor_code + "\txor ax, ax\n"
+                        ax_used = True
+                        buffor_code = buffor_code + "\tmov ah, 10\n"
+                        b = stack.pop()
+                        if isinstance(b, str):
+                            buffor_code = buffor_code + f"\tmov dx, offset {b}\n"
+                        else:
+                            error(Error.COMPILE, "int type in dos call for address")
+                        buffor_code = buffor_code + "\tint 21h\n"
+                    else:
+                        error(Error.SIMULATE, "only 9 and 10 dos calls are implemented yet")
+                case OP.LINUX:
+                    a = stack.pop()
+                    if a == 1:
+                        b = stack.pop()
+                        c = stack.pop()
+                        d = stack.pop()
+                        if b == 1:
+                            for x in range(d):
+                                #out.write(chr(heap[c+x]))
+                                pass
+                        elif b == 2:
+                            for x in range(d):
+                                sys.stderr.write(chr(heap[c+x]))
+                        else:
+                            error(Error.SIMULATE, "other file descriptors than `1` and `2` are not supported yet, skipping...", exitAfter=False)
+
+                case OP.MEMWRITE:
+                    a = stack.pop()
+                    b = stack.pop()
+                    if isinstance(b, str):
+                        buffor_code = buffor_code + f"\tmov [{b}]"
+                        if isinstance(a, str):
+                            buffor_code = buffor_code + f", [{a}]\n"
+                        else:
+                            buffor_code = buffor_code + f", {a}\n"
+                    else:
+                        error(Error.COMPILE, "int type in memwrite for address")
+                    #print(ip, a, data.vars[temp1].type)
+                    #match data.vars[temp1].type:
+                        #case DT.UINT8MEM:
+                            #heap[b] = bfromNum(DT.UINT8, a)[0]
+                        #case DT.UINT16MEM:
+                            #heap[b:b+2] = bfromNum(DT.UINT16, a)
+                        #case _:
+                            #error(Error.SIMULATE, "MEM WRITE implemented only to UINT8MEM and UINT16MEM yet!")
+                case OP.MEMREAD:
+                    a = stack.pop()
+                    stack.append(int.from_bytes(data.vars[a].value))
+                    #if isinstance(a, str):
+                        #buffor_code = buffor_code + f"\tmov ax, [{a}]\n"
+                    #else:
+                        #buffor_code = buffor_code + f"\tmov ax, {a}\n"
+                    #else:
+                        #error(Error.COMPILE, "int type in memread for address")
+                    #match last_type:
+                        #case DT.UINT8MEM:
+                            #stack.append(int.from_bytes(heap[a:a+1]))
+                        #case DT.UINT16MEM:
+                            #stack.append(int.from_bytes(heap[a:a+2]))
+                        #case _:
+                            #error(Error.SIMULATE, "MEMREAD implemented only to UINT8MEM and UINT16MEM yet!")
+                    #print(stack, [x for x in heap[0:100]])
+
+                case OP.COLON:
+                    if ComState.VARDEF in state:
+                        if len(stack) > 0:
+                            a = stack.pop()
+                            if isinstance(a, int):
+                                buffor_code = buffor_code + f"\tmov [{data.vars[temp1].name}], {a}\n"
+                            else:
+                                buffor_code = buffor_code + f"\tmov [{data.vars[temp1].name}], [{a}]\n"
+                        else:
+                            if data.vars[temp1].type in [DT.UINT8]:
+                                buffor_code = buffor_code + f"\tmov [{data.vars[temp1].name}], al\n"
+                            elif data.vars[temp1].type in [DT.UINT16]:
+                                buffor_code = buffor_code + f"\tmov [{data.vars[temp1].name}], ax\n"
+                            else:
+                                error(Error.COMPILE, "Unknown type")
+                            #buffor_code = buffor_code + f"\tmov [{data.vars[temp1].name}], ax\n"
+                        #data.vars[temp1].value = bytearray(bfromNum(data.vars[temp1].type, stack[-1]))
+                    state = ComState.NONE
+                    begin_arith = False
+            ip += 1
+        buffor_code = buffor_code + "\tmov ah, 4Ch\n\tint 21h\nEND start"
+        #print(buffor_start, buffor_data, buffor_code)
+        return buffor_start + buffor_data + buffor_code
 
 def simulate_data(data: codeBlock, out = sys.stdout):
     
-    if (n:=OP.COUNT.value) != (m:=34):
+    if (n:=OP.COUNT.value) != (m:=35):
         error(Error.ENUM, f"{BOLD_}Exhaustive operation parsing protection in {BOLD_}simulate_data{BACK_}", expected = (m,n), flags = LogFlag.FAIL | LogFlag.EXPECTED)
     
     heap = bytearray(HEAP_SIZE)
@@ -535,6 +988,7 @@ indifferent_token: dict[str, TOKENS] = {
     "="     : TOKENS.OPERAND,
     "+"     : TOKENS.OPERAND,
     "-"     : TOKENS.OPERAND,
+    "/"     : TOKENS.OPERAND,
     "*"     : TOKENS.OPERAND,
     "{"     : TOKENS.CODEOPEN,
     "("     : TOKENS.CODEOPEN,
@@ -567,6 +1021,7 @@ operand_map: dict[str, OP] = {
     "="     : OP.SET,
     "+"     : OP.ADD,
     "-"     : OP.SUB,
+    "/"     : OP.DIV,
     "*"     : OP.MUL,
     ";"     : OP.COLON,
 }
@@ -636,7 +1091,7 @@ def Parse_condition_block(data: codeBlock, typeof: OP) -> list[OpType]:
 
     # FIX LABELS WHEN TESTING? (idk why the problem is here)
 
-    if (n:=OP.COUNT.value) != (m:=34):
+    if (n:=OP.COUNT.value) != (m:=35):
         error(Error.ENUM, f"{BOLD_}Exhaustive operation parsing protection in {BOLD_}Parse_condition_block{BACK_}", expected = (m,n), flags = LogFlag.FAIL | LogFlag.EXPECTED)
     if data.type != CB.CONDITION:
         error(Error.PARSE, f"Passed non-condition type codeblock to {BOLD_}Parse_condition_block{BACK_}", flags = LogFlag.FAIL)
@@ -695,7 +1150,7 @@ def Parse_condition_block(data: codeBlock, typeof: OP) -> list[OpType]:
 
 def Third_token_parse(data: codeBlock) -> codeBlock:
     
-    if (n:=OP.COUNT.value) != (m:=34):
+    if (n:=OP.COUNT.value) != (m:=35):
         error(Error.ENUM, f"{BOLD_}Exhaustive operation parsing protection in {BOLD_}Third_token_parse{BACK_}", expected = (m,n), flags = LogFlag.FAIL | LogFlag.EXPECTED)
     if (n:=CB.COUNT.value) != (m:=5):
         error(Error.ENUM, f"{BOLD_}Exhaustive codeBlock parsing protection in {BOLD_}Third_token_parse{BACK_}", expected = (m,n), flags = LogFlag.FAIL | LogFlag.EXPECTED)
@@ -799,7 +1254,7 @@ def Third_token_parse(data: codeBlock) -> codeBlock:
 
 def Secound_token_parse(data: codeBlock, index_offset: int = 0) -> codeBlock:
 
-    if (n:=OP.COUNT.value) != (m:=34):
+    if (n:=OP.COUNT.value) != (m:=35):
         error(Error.ENUM, f"{BOLD_}Exhaustive operation parsing protection in {BOLD_}Secound_token_parse{BACK_}", expected = (m,n), flags = LogFlag.FAIL | LogFlag.EXPECTED)
     if (n:=CB.COUNT.value) != (m:=5):
         error(Error.ENUM, f"{BOLD_}Exhaustive codeBlock parsing protection in {BOLD_}Secound_token_parse{BACK_}", expected = (m,n), flags = LogFlag.FAIL | LogFlag.EXPECTED)
@@ -835,7 +1290,7 @@ def Secound_token_parse(data: codeBlock, index_offset: int = 0) -> codeBlock:
         
 def First_token_parse(data: list[Token]) -> codeBlock:
 
-    if (n:=OP.COUNT.value) != (m:=34):
+    if (n:=OP.COUNT.value) != (m:=35):
         error(Error.ENUM, f"{BOLD_}Exhaustive operation parsing protection in {BOLD_}First_token_parse{BACK_}", expected = (m,n), flags = LogFlag.FAIL | LogFlag.EXPECTED)
 
     # ret: codeBlock = codeBlock(0) this line was bugging tests, actually stupid bug
@@ -1000,6 +1455,9 @@ def Parse_file(in_path: str) -> list:
                     token = token + data[index]
                 slash_before = False
             case x if isinstance(x, str):
+                if slash_before:
+                    token = token + '\\'
+                    slash_before = False
                 token = token + data[index]
                 if slash_before and string_literal:
                     token = token.encode("utf-8").decode("unicode_escape")
@@ -1060,7 +1518,16 @@ if __name__ == "__main__":
                 error(Error.CMD, f"Wrong file provided, compiller couldn't find file at a `{input_file}` location", flags = LogFlag.WARNING)
             parsed = Parse_file(input_file)
             
-            compile_data(parsed)
+            output_string = compile_data(parsed)
+            if len(argv) > 0:
+                option, argv = unpack(argv)
+            if option == '-o':
+                if argv[0]:
+                    with open(argv[0], 'wt', encoding="utf-8") as f:
+                        f.write(output_string)
+            else:
+                with open(input_file[:input_file.rfind('.')] + ".asm", 'wt', encoding="utf-8") as f:
+                    f.write(output_string)
         case '-s':
             input_file, argv = unpack(argv)
 
