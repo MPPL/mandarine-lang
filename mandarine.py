@@ -249,10 +249,13 @@ def compile_data(data: list[dict]) -> None:
     last_type: DT
     debug_counter = -1
     
-    buffor: str = ""
+    buffor_start: str = ""
+    buffor_data: str = ""
+    buffor_code: str = ""
     
     if Com_Mode == COMMODE.LINUX:
-        buffor += "format ELF64 executable 3\nsegment readable executable\nentry main\nmain:\n"
+        buffor_start = buffor_start + "format ELF64 executable 3\nsegment readable executable\n"
+        buffor_code = buffor_code + "entrymain\nmain\n"
         for x in data:
             match x.type:
                 case OP.NUM:
@@ -261,6 +264,8 @@ def compile_data(data: list[dict]) -> None:
                     pass
                 case OP.COLON:
                     pass
+    elif Com_Mode == COMMODE.DOS:
+        buffor_start = buffor_start + ""
 
 def simulate_data(data: codeBlock, out = sys.stdout):
     
