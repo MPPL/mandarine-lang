@@ -232,8 +232,44 @@ def bfromNum(type: DT, value: int) -> bytearray:
         case _:
             return bytearray([0])
     
-            
+def gen_asm_debug(operation: str, register: str, data: str | int, dataType: DT | None, Com_state: ComState = ComState.NONE, ax_used: bool = False, force_value: bool = False) -> tuple[bool, str]:
+    
+    #if Com_state == ComState.CONDITION:
+        #force_value = True
 
+    ret: str = ""
+    if isinstance(data, int):
+        ax_used = True
+        ret = f"\t{operation} {register + 'x, ' if register else ''}{data}\n"
+    else:
+        match dataType:
+            case DT.UINT8:
+                if ax_used and register and operation == 'mov':
+                    ret = f"\txor {register}x, {register}x\n"
+                    ax_used = False
+                ret += f"\t{operation} {register + 'l, ' if register else ''}[{data}]\n"
+            case DT.UINT16:
+                ax_used = True
+                ret = f"\t{operation} {register + 'x, ' if register else ''}[{data}]\n"
+            case DT.UINT8MEM:
+                if force_value:
+                    (ax_used, ret) = gen_asm_debug(operation, register, data, DT.UINT8, ax_used)
+                else:
+                    if ax_used and register and operation == 'mov':
+                        ret = f"\txor {register}x, {register}x\n"
+                        ax_used = False
+                    ret += f"\t{operation} {register + 'l, ' if register else ''}offset {data}\n"
+            case DT.UINT16MEM:
+                if force_value:
+                    (ax_used, ret) = gen_asm_debug(operation, register, data, DT.UINT16, ax_used)
+                else:
+                    ax_used = True
+                    ret = f"\t{operation} {register + 'x, ' if register else ''}offset {data}\n"
+            case _:
+                print(dataType)
+                error(Error.COMPILE, f"Unknown type, {dataType.name}")
+    #print((ax_used, ret))
+    return (ax_used, ret)
 
 def compile_data(data: list[dict]) -> None:
 
@@ -311,9 +347,11 @@ def compile_data(data: list[dict]) -> None:
                         #stack.append(int.from_bytes(bfromNum(data.vars[temp1].type, heap_end)))
                         #heap_end += len(x.value)+1
                 case OP.ADD:
+                    buffor_code = buffor_code + ";; -- ADD --\n"
                     if begin_arith:
                         a = stack.pop()
-                        buffor_code = buffor_code + f"\tadd ax, {a if isinstance(a, int) else f'[{a}]'}\n"
+                        (ax_used, op) = gen_asm_debug('add', 'a', a, None if isinstance(a, int) else data.vars[a].type, state, ax_used)
+                        buffor_code = buffor_code + op
                     else:
                         begin_arith = True
                         a = stack.pop()
@@ -322,21 +360,21 @@ def compile_data(data: list[dict]) -> None:
                             ax_used = True
                             buffor_code = buffor_code + f"\tmov ax, {b}\n"
                         else:
-                            if data.vars[b].type in [DT.UINT8]:
-                                if ax_used:
-                                    buffor_code = buffor_code + f"\txor ax, ax\n"
-                                    ax_used = False
-                                buffor_code = buffor_code + f"\tmov al, [{b}]\n"
-                            elif data.vars[b].type in [DT.UINT16]:
-                                ax_used = True
-                                buffor_code = buffor_code + f"\tmov ax, [{b}]\n"
-                            else:
-                                error(Error.COMPILE, f"Unknown type, {data.vars[b].type}")
-                        buffor_code = buffor_code + f"\tadd ax, {a if isinstance(a, int) else f'[{a}]'}\n"
+                            (ax_used, op) = gen_asm_debug('mov', 'a', b, data.vars[b].type, state, ax_used)
+                            buffor_code = buffor_code + op
+                        if isinstance(a, int):
+                            ax_used = True
+                            buffor_code = buffor_code + f"\tadd ax, {a}\n"
+                        else:
+                            (ax_used, op) = gen_asm_debug('add', 'a', a, data.vars[b].type, state, ax_used, force_value=True)
+                            buffor_code = buffor_code + op
+                        #buffor_code = buffor_code + f"\tadd ax, {a if isinstance(a, int) else f'[{a}]'}\n"
                 case OP.SUB:
+                    buffor_code = buffor_code + ";; -- SUB --\n"
                     if begin_arith:
                         a = stack.pop()
-                        buffor_code = buffor_code + f"\tsub ax, {a if isinstance(a, int) else f'[{a}]'}\n"
+                        (ax_used, op) = gen_asm_debug('sub', 'a', a, None if isinstance(a, int) else data.vars[a].type, state, ax_used)
+                        buffor_code = buffor_code + op
                     else:
                         begin_arith = True
                         a = stack.pop()
@@ -345,21 +383,21 @@ def compile_data(data: list[dict]) -> None:
                             ax_used = True
                             buffor_code = buffor_code + f"\tmov ax, {b}\n"
                         else:
-                            if data.vars[b].type in [DT.UINT8]:
-                                if ax_used:
-                                    buffor_code = buffor_code + f"\txor ax, ax\n"
-                                    ax_used = False
-                                buffor_code = buffor_code + f"\tmov al, [{b}]\n"
-                            elif data.vars[b].type in [DT.UINT16]:
-                                ax_used = True
-                                buffor_code = buffor_code + f"\tmov ax, [{b}]\n"
-                            else:
-                                error(Error.COMPILE, f"Unknown type, {data.vars[b].type}")
-                        buffor_code = buffor_code + f"\tsub ax, {a if isinstance(a, int) else f'[{a}]'}\n"
+                            (ax_used, op) = gen_asm_debug('mov', 'a', b, data.vars[b].type, state, ax_used)
+                            buffor_code = buffor_code + op
+                        if isinstance(a, int):
+                            ax_used = True
+                            buffor_code = buffor_code + f"\tsub ax, {a}\n"
+                        else:
+                            (ax_used, op) = gen_asm_debug('sub', 'a', a, data.vars[b].type, state, ax_used, force_value=True)
+                            buffor_code = buffor_code + op
+                        #buffor_code = buffor_code + f"\tsub ax, {a if isinstance(a, int) else f'[{a}]'}\n"
                 case OP.MUL:
+                    buffor_code = buffor_code + ";; -- MUL --\n"
                     if begin_arith:
                         a = stack.pop()
-                        buffor_code = buffor_code + f"\tmul {a if isinstance(a, int) else f'[{a}]'}\n"
+                        (ax_used, op) = gen_asm_debug('mul', '', a, None if isinstance(a, int) else data.vars[a].type, state, ax_used)
+                        buffor_code = buffor_code + op
                     else:
                         begin_arith = True
                         a = stack.pop()
@@ -368,21 +406,21 @@ def compile_data(data: list[dict]) -> None:
                             ax_used = True
                             buffor_code = buffor_code + f"\tmov ax, {b}\n"
                         else:
-                            if data.vars[b].type in [DT.UINT8]:
-                                if ax_used:
-                                    buffor_code = buffor_code + f"\txor ax, ax\n"
-                                    ax_used = False
-                                buffor_code = buffor_code + f"\tmov al, [{b}]\n"
-                            elif data.vars[b].type in [DT.UINT16]:
-                                ax_used = True
-                                buffor_code = buffor_code + f"\tmov ax, [{b}]\n"
-                            else:
-                                error(Error.COMPILE, f"Unknown type, {data.vars[b].type}")
-                        buffor_code = buffor_code + f"\tmul {a if isinstance(a, int) else f'[{a}]'}\n"
+                            (ax_used, op) = gen_asm_debug('mov', 'a', b, data.vars[b].type, state, ax_used)
+                            buffor_code = buffor_code + op
+                        if isinstance(a, int):
+                            ax_used = True
+                            buffor_code = buffor_code + f"\tmul {a}\n"
+                        else:
+                            (ax_used, op) = gen_asm_debug('mul', '', a, data.vars[b].type, state, ax_used, force_value=True)
+                            buffor_code = buffor_code + op
+                        #buffor_code = buffor_code + f"\tsub ax, {a if isinstance(a, int) else f'[{a}]'}\n"
                 case OP.DIV:
+                    buffor_code = buffor_code + ";; -- DIV --\n"
                     if begin_arith:
                         a = stack.pop()
-                        buffor_code = buffor_code + f"\tdiv BYTE {a if isinstance(a, int) else f'[{a}]'}\n"
+                        (ax_used, op) = gen_asm_debug('div', '', a, None if isinstance(a, int) else data.vars[a].type, state, ax_used)
+                        buffor_code = buffor_code + op
                     else:
                         begin_arith = True
                         a = stack.pop()
@@ -391,17 +429,15 @@ def compile_data(data: list[dict]) -> None:
                             ax_used = True
                             buffor_code = buffor_code + f"\tmov ax, {b}\n"
                         else:
-                            if data.vars[b].type in [DT.UINT8]:
-                                if ax_used:
-                                    buffor_code = buffor_code + f"\txor ax, ax\n"
-                                    ax_used = False
-                                buffor_code = buffor_code + f"\tmov al, [{b}]\n"
-                            elif data.vars[b].type in [DT.UINT16]:
-                                ax_used = True
-                                buffor_code = buffor_code + f"\tmov ax, [{b}]\n"
-                            else:
-                                error(Error.COMPILE, f"Unknown type, {data.vars[b].type}")
-                        buffor_code = buffor_code + f"\tdiv BYTE {a if isinstance(a, int) else f'[{a}]'}\n"
+                            (ax_used, op) = gen_asm_debug('mov', 'a', b, data.vars[b].type, state, ax_used)
+                            buffor_code = buffor_code + op
+                        if isinstance(a, int):
+                            ax_used = True
+                            buffor_code = buffor_code + f"\tdiv BYTE {a}\n"
+                        else:
+                            (ax_used, op) = gen_asm_debug('div BYTE', '', a, data.vars[b].type, state, ax_used, force_value=True)
+                            buffor_code = buffor_code + op
+                        #buffor_code = buffor_code + f"\tdiv BYTE {a if isinstance(a, int) else f'[{a}]'}\n"
                         buffor_code = buffor_code + f"\txor ah, ah\n"
                 case OP.SHL:
                     if begin_arith:
@@ -410,7 +446,8 @@ def compile_data(data: list[dict]) -> None:
                         if isinstance(a, int):
                             buffor_code = buffor_code + f"\tshl ax, {a}\n"
                         else:
-                            buffor_code = buffor_code + f"\tmov cl, [{a}]\n"
+                            (ax_used, op) = gen_asm_debug('mov', 'c', a, data.vars[b].type, state, ax_used, force_value=True)
+                            buffor_code = buffor_code + op
                             buffor_code = buffor_code + f"\tshl ax, cl\n"
                     else:
                         begin_arith = True
@@ -418,11 +455,14 @@ def compile_data(data: list[dict]) -> None:
                         b = stack.pop()
                         ax_used = True
                         if isinstance(b, int):
-                            buffor_code = buffor_code + f"\tmov ax, {a}\n"
+                            (ax_used, op) = gen_asm_debug('mov', 'a', a, data.vars[b].type, state, ax_used)
+                            buffor_code = buffor_code + op
                             buffor_code = buffor_code + f"\tshl ax, {b}\n"
                         else:
-                            buffor_code = buffor_code + f"\tmov ax, {a}\n"
-                            buffor_code = buffor_code + f"\tmov cl, [{b}]\n"
+                            (ax_used, op) = gen_asm_debug('mov', 'a', a, data.vars[b].type, state, ax_used)
+                            buffor_code = buffor_code + op
+                            (ax_used, op) = gen_asm_debug('mov', 'c', b, data.vars[b].type, state, ax_used, force_value=True)
+                            buffor_code = buffor_code + op
                             buffor_code = buffor_code + f"\tshl ax, cl\n"
                 case OP.SHR:
                     if begin_arith:
@@ -431,23 +471,29 @@ def compile_data(data: list[dict]) -> None:
                         if isinstance(a, int):
                             buffor_code = buffor_code + f"\tshr ax, {a}\n"
                         else:
-                            buffor_code = buffor_code + f"\tmov cl, [{a}]\n"
+                            (ax_used, op) = gen_asm_debug('mov', 'c', a, data.vars[b].type, state, ax_used, force_value=True)
+                            buffor_code = buffor_code + op
                             buffor_code = buffor_code + f"\tshr ax, cl\n"
                     else:
                         begin_arith = True
                         a = stack.pop()
                         b = stack.pop()
                         ax_used = True
-                        if isinstance(a, int):
-                            buffor_code = buffor_code + f"\tmov ax, {a}\n"
+                        if isinstance(b, int):
+                            (ax_used, op) = gen_asm_debug('mov', 'a', a, data.vars[b].type, state, ax_used)
+                            buffor_code = buffor_code + op
                             buffor_code = buffor_code + f"\tshr ax, {b}\n"
                         else:
-                            buffor_code = buffor_code + f"\tmov ax, {a}\n"
-                            buffor_code = buffor_code + f"\tmov cl, [{b}]\n"
+                            (ax_used, op) = gen_asm_debug('mov', 'a', a, data.vars[b].type, state, ax_used)
+                            buffor_code = buffor_code + op
+                            (ax_used, op) = gen_asm_debug('mov', 'c', b, data.vars[b].type, state, ax_used, force_value=True)
+                            buffor_code = buffor_code + op
                             buffor_code = buffor_code + f"\tshr ax, cl\n"
                 case OP.IF:
+                    buffor_code = buffor_code + ";; -- IF --\n"
                     state = ComState.CONDITION
                 case OP.WHILE:
+                    buffor_code = buffor_code + ";; -- WHILE --\n"
                     state = ComState.CONDITION
                 case OP.EQUAL:
                     if len(stack) > 0:
@@ -463,8 +509,9 @@ def compile_data(data: list[dict]) -> None:
                                 error(Error.COMPILE, "unknown type for comparison")
                     else:
                         buffor_code = buffor_code + f"\tmov bx, ax\n"
-                    buffor_code = buffor_code + f"\tmov bx, ax\n"
+                    #buffor_code = buffor_code + f"\tmov bx, ax\n"
                     condition = x.type
+                    begin_arith = False
                 case OP.GREATER:
                     if len(stack) > 0:
                         a = stack.pop()
@@ -481,6 +528,7 @@ def compile_data(data: list[dict]) -> None:
                     else:
                         buffor_code = buffor_code + f"\tmov bx, ax\n"
                     condition = x.type
+                    begin_arith = False
                 case OP.LESS:
                     if len(stack) > 0:
                         a = stack.pop()
@@ -496,6 +544,7 @@ def compile_data(data: list[dict]) -> None:
                     else:
                         buffor_code = buffor_code + f"\tmov bx, ax\n"
                     condition = x.type
+                    begin_arith = False
                 case OP.GE:
                     if len(stack) > 0:
                         a = stack.pop()
@@ -511,6 +560,7 @@ def compile_data(data: list[dict]) -> None:
                     else:
                         buffor_code = buffor_code + f"\tmov bx, ax\n"
                     condition = x.type
+                    begin_arith = False
                 case OP.LE:
                     if len(stack) > 0:
                         a = stack.pop()
@@ -526,6 +576,7 @@ def compile_data(data: list[dict]) -> None:
                     else:
                         buffor_code = buffor_code + f"\tmov bx, ax\n"
                     condition = x.type
+                    begin_arith = False
                 case OP.CONJUMP:
                     if len(stack) > 0:
                         a = stack.pop()
@@ -548,15 +599,16 @@ def compile_data(data: list[dict]) -> None:
                     state = ComState.NONE
                     match condition:
                         case OP.EQUAL:
-                            buffor_code = buffor_code + f"\tje {x.value}\n"
+                            buffor_code = buffor_code + f"\tjne {x.value}\n"
                         case OP.GREATER:
-                            buffor_code = buffor_code + f"\tjg {x.value}\n"
-                        case OP.LESS:
-                            buffor_code = buffor_code + f"\tjl {x.value}\n"
-                        case OP.GE:
-                            buffor_code = buffor_code + f"\tjge {x.value}\n"
-                        case OP.LE:
                             buffor_code = buffor_code + f"\tjle {x.value}\n"
+                        case OP.LESS:
+                            buffor_code = buffor_code + f"\tjge {x.value}\n"
+                        case OP.GE:
+                            buffor_code = buffor_code + f"\tjl {x.value}\n"
+                        case OP.LE:
+                            buffor_code = buffor_code + f"\tjg {x.value}\n"
+                    begin_arith = False
                 case OP.JUMP:
                     buffor_code = buffor_code + f"\tjmp {x.value}\n"
                     state = ComState.NONE
@@ -586,10 +638,10 @@ def compile_data(data: list[dict]) -> None:
                         match data.vars[temp1].type:
                             case DT.UINT8MEM:
                                 a = stack.pop()
-                                buffor_data += buffor_data + f"\t{data.vars[temp1].name} db {a} dup (?)\n"
+                                buffor_data = buffor_data + f"\t{data.vars[temp1].name} db {a-2},{a-1} dup (0)\n"
                             case DT.UINT16MEM:
                                 a = stack.pop()
-                                buffor_data += buffor_data + f"\t{data.vars[temp1].name} dw {a} dup (?)\n"
+                                buffor_data = buffor_data + f"\t{data.vars[temp1].name} dw {a-2},{a-1} dup (0)\n"
                         #data.vars[temp1].value
                         state = ComState.NONE
                     else:
@@ -679,8 +731,32 @@ def compile_data(data: list[dict]) -> None:
                         #case _:
                             #error(Error.SIMULATE, "MEM WRITE implemented only to UINT8MEM and UINT16MEM yet!")
                 case OP.MEMREAD:
-                    a = stack.pop()
-                    stack.append(int.from_bytes(data.vars[a].value))
+                    # TODO - bx_used
+                    buffor_code += ";; -- MEMREAD --\n"
+                    if len(stack) > 0:
+                        #print(stack)
+                        a = stack.pop()
+                        if isinstance(a, int):
+                            error(Error.COMPILE, "Wrong Type, should be str not int")
+                        else:
+                            if data.vars[a].type in [DT.UINT8MEM]:
+                                if ax_used:
+                                    buffor_code = buffor_code + f"\txor ax, ax\n"
+                                    ax_used = False
+                                buffor_code = buffor_code + f"\tmov al, [{a}]\n"
+                            elif data.vars[a].type in [DT.UINT16MEM]:
+                                ax_used = True
+                                buffor_code = buffor_code + f"\tmov ax, [{a}]\n"
+                            else:
+                                error(Error.COMPILE, "Wrong Type, should be pointer")
+                    else:
+                        buffor_code += f"\tmov si, ax\n"
+                        (ax_used, op) = gen_asm_debug('mov', 'a', 'si', DT.UINT8, ax_used=ax_used, force_value=True)
+                        buffor_code += op
+                        ax_used = True
+                    begin_arith = True
+                        #buffor_code = buffor_code + "\tmov ax, \n"
+                    #stack.append(int.from_bytes(data.vars[a].type))
                     #if isinstance(a, str):
                         #buffor_code = buffor_code + f"\tmov ax, [{a}]\n"
                     #else:
@@ -715,7 +791,8 @@ def compile_data(data: list[dict]) -> None:
                         #data.vars[temp1].value = bytearray(bfromNum(data.vars[temp1].type, stack[-1]))
                     state = ComState.NONE
                     begin_arith = False
-            ip += 1
+            #print(x)
+            #input()
         buffor_code = buffor_code + "\tmov ah, 4Ch\n\tint 21h\nEND start"
         #print(buffor_start, buffor_data, buffor_code)
         return buffor_start + buffor_data + buffor_code
@@ -1109,13 +1186,13 @@ def Parse_condition_block(data: codeBlock, typeof: OP) -> list[OpType]:
         match data.tokens[index].type:
             case x if x in [OP.VAR, OP.NUM]:
                 if left_or_right:
-                    if len(left) > 0 and left[-1].type in arithmetic_ops:
-                        error(Error.PARSE, f"Wrong position of token `{bolden(data.tokens[index].type.name)}`, maybe you forgot some opperand? {WARN_}loc = {data.tokens[index].loc}{BACK_}", flags = LogFlag.FAIL)
+                    #if len(left) > 0 and left[-1].type in arithmetic_ops:
+                        #error(Error.PARSE, f"Wrong position of token `{bolden(data.tokens[index].type.name)}`, maybe you forgot some opperand? {WARN_}loc = {data.tokens[index].loc}{BACK_}", flags = LogFlag.FAIL)
                     left.append(data.tokens[index])
                     l_count += 1
                 else:
-                    if len(right) > 0 and right[-1].type in arithmetic_ops:
-                        error(Error.PARSE, f"Wrong position of token `{bolden(data.tokens[index].type.name)}`, maybe you forgot some opperand? {WARN_}loc = {data.tokens[index].loc}{BACK_}", flags = LogFlag.FAIL)
+                    #if len(right) > 0 and right[-1].type in arithmetic_ops:
+                        #error(Error.PARSE, f"Wrong position of token `{bolden(data.tokens[index].type.name)}`, maybe you forgot some opperand? {WARN_}loc = {data.tokens[index].loc}{BACK_}", flags = LogFlag.FAIL)
                     right.append(data.tokens[index])
                     r_count += 1
             case x if x in arithmetic_ops:
@@ -1134,14 +1211,27 @@ def Parse_condition_block(data: codeBlock, typeof: OP) -> list[OpType]:
                     error(Error.PARSE, "multiple conditions in condition codeBlock are not supported yet", flags = LogFlag.FAIL)
                 condition = data.tokens[index]
                 left_or_right = False
+            case OP.MEMREAD:
+                if left_or_right:
+                    left.append(data.tokens[index])
+                    #l_count += 1
+                else:
+                    right.append(data.tokens[index])
+                    #r_count += 1
             case _:
                 error(Error.PARSE, f"token `{bolden(data.tokens[index].type.name)}` is disallowed in condition codeBlock")
         index += 1
     
-    if not len(right) or r_count*2-1 != len(right):
-        error(Error.PARSE, f"Empty {bolden("right-side")} of condition! {WARN_}loc = {data.tokens[index].loc}{BACK_}", flags = LogFlag.FAIL)
-    if not len(left) or l_count*2-1 != len(left):
-        error(Error.PARSE, "condidion codeBlock is empty!", flags = LogFlag.FAIL)
+    if sum([1 for x in left if x.type in [OP.NUM, OP.VAR]]) != sum([1 for x in left if x.type in arithmetic_ops])+1:
+        print(sum([1 for x in left if x.type in [OP.NUM, OP.VAR]]), sum([1 for x in left if x.type in arithmetic_ops])+1)
+        error(Error.PARSE, "Wrong layout of arithmetics in condition block", flags = LogFlag.FAIL)
+    if sum([1 for x in right if x.type in [OP.NUM, OP.VAR]]) != sum([1 for x in right if x.type in arithmetic_ops])+1:
+        error(Error.PARSE, "Wrong layout of arithmetics in condition block", flags = LogFlag.FAIL)
+
+    #if not len(right) or r_count*2-1 != len(right):
+        #error(Error.PARSE, f"Empty {bolden("right-side")} of condition! {WARN_}loc = {data.tokens[index].loc}{BACK_}", flags = LogFlag.FAIL)
+    #if not len(left) or l_count*2-1 != len(left):
+        #error(Error.PARSE, "condidion codeBlock is empty!", flags = LogFlag.FAIL)
     if condition is None:
         error(Error.PARSE, "No condition token found", flags = LogFlag.FAIL)
     if typeof == OP.WHILE:
@@ -1188,7 +1278,7 @@ def Third_token_parse(data: codeBlock) -> codeBlock:
                             error(Error.PARSE, "ELSE - NO CODEBLOCK", flags = LogFlag.FAIL)
                         is_else = True
                 con_token_list[-1].loc = con_token_list[-2].loc+1
-                con_token_list[-1].value = f"label{data.tokens[index+2].tokens[-1].loc+1+index_offset}"
+                con_token_list[-1].value = f"label{data.tokens[index+2].tokens[-1].loc+1+index_offset+int(is_else)}"
                 #for i, x in enumerate(con_token_list):
                     #print("con > >", x, index + index_offset + i)
                 code_token_list: list[OpType] = []
@@ -1265,7 +1355,7 @@ def Secound_token_parse(data: codeBlock, index_offset: int = 0) -> codeBlock:
             case OP.TYPE:
                 if index+1 < len(data.tokens):
                     if data.tokens[index+1].type == OP.VAR:
-                        if (n:=Var(data.tokens[index].value, (m:=data.tokens[index+1].value))) not in data.vars.values():
+                        if (n:=Var(data.tokens[index].value, (m:=(data.tokens[index+1].value)))) not in data.vars.values():
                             data.vars[m] = n
                             data.tokens.pop(index)
                             index_offset -= 1
@@ -1395,7 +1485,7 @@ def Parse_token(file_path: str, loc: tuple[int, int], data: str) -> list[Token]:
         if data:
             if data[0].isdigit():
                 error(Error.TOKENIZE, "name token cannot begin with a number", flags = LogFlag.FAIL)
-            ret += [Token(TOKENS.NAME, (file_path,)+loc, data)]
+            ret += [Token(TOKENS.NAME, (file_path,)+loc, 'v'+data)]
             #assert False, "unknown keyword %s" % (data)
 
     return ret
