@@ -1,11 +1,10 @@
 #mode dos
 u8p var1 = "Hello, Mandarine!";
 var1 9 dos .n ;
-u8 i = 17;
-while(i > 0){
-    var1 17 i -+ ..n ;
-    var1 = var1 17 i - +;
+u8 i = 0;
+while(i < 17){
     var1 ,mem .c .n ;
-    var1 = var1 i 17 + -;
-    i = i 1-;
+    var1 = var1 1+;
+    i = i 1+;
+    \\i ..n ;
 }

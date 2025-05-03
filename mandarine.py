@@ -3,7 +3,6 @@
 import sys
 import subprocess
 from enum import Enum, auto, Flag
-import types
 import typing
 import os
 import glob
@@ -128,7 +127,7 @@ class codeBlock:
     tokens:     list[Token | typing.Self] = []
     vars:       dict[str,Var]
 
-    def __init__(self, id = -1, tokens = [], vars = {}):
+    def __init__(self: typing.Self, id: int = -1, tokens: list[Token] = [], vars: dict[str, Var] = {}):
         self.id = id
         self.tokens = tokens
         self.vars = vars
@@ -229,11 +228,12 @@ def bfromNum(type: DT, value: int) -> bytearray:
         case DT.UINT16MEM:
             return bytearray([value % (1<<8)])
         case _:
-            pass
+            return bytearray([0])
+    
             
 
 
-def compile_data(data: list[dict]):
+def compile_data(data: list[dict]) -> None:
     assert False, "not implemented yet"
 
     if (n:=OP.COUNT.value) != (m:=32):
@@ -248,6 +248,19 @@ def compile_data(data: list[dict]):
     condition: OP
     last_type: DT
     debug_counter = -1
+    
+    buffor: str = ""
+    
+    if Com_Mode == COMMODE.LINUX:
+        buffor += "format ELF64 executable 3\nsegment readable executable\nentry main\nmain:\n"
+        for x in data:
+            match x.type:
+                case OP.NUM:
+                    stack.append(int(x.value))
+                case OP.ADD:
+                    pass
+                case OP.COLON:
+                    pass
 
 def simulate_data(data: codeBlock, out = sys.stdout):
     
@@ -256,7 +269,7 @@ def simulate_data(data: codeBlock, out = sys.stdout):
     
     heap = bytearray(HEAP_SIZE)
     heap_end = 0
-    stack = []
+    stack: list[int] = []
     ip = 0
     state: ComState = ComState.NONE
     temp1: str = ""
@@ -329,6 +342,7 @@ def simulate_data(data: codeBlock, out = sys.stdout):
             case OP.CONJUMP:
                 a = stack.pop()
                 b = stack.pop()
+                state = ComState.NONE
                 match condition:
                     case OP.EQUAL:
                         if not b == a:
@@ -352,6 +366,7 @@ def simulate_data(data: codeBlock, out = sys.stdout):
                             continue
             case OP.JUMP:
                 ip = int(x.value[5:])
+                state = ComState.NONE
                 continue
             case OP.COPY:
                 a = stack.pop()
@@ -368,7 +383,7 @@ def simulate_data(data: codeBlock, out = sys.stdout):
                 out.write('\n')
             case OP.PRINT_CHAR:
                 a = stack.pop()
-                out.write(chr(int(a)))
+                out.write(chr(a))
             case OP.TYPE:
                 pass
             case OP.BUF:
@@ -382,7 +397,7 @@ def simulate_data(data: codeBlock, out = sys.stdout):
 
                     data.vars[temp1].value = bytearray(bfromNum(data.vars[temp1].type, heap_end))
                     heap_end += a
-                    data.vars[temp1].value
+                    #data.vars[temp1].value
                     state = ComState.NONE
                 else:
                     error(Error.SIMULATE, "Buf used in wrong position")
@@ -459,17 +474,17 @@ def simulate_data(data: codeBlock, out = sys.stdout):
                 #print(stack, [x for x in heap[0:100]])
 
             case OP.COLON:
-                #print(state)
                 if ComState.VARDEF in state:
                     data.vars[temp1].value = bytearray(bfromNum(data.vars[temp1].type, stack.pop()))
                 state = ComState.NONE
         ip += 1
         #print(stack, heap[:15], ip, x)
         #input()
+    #print(heap[:15])
 
 def unpack(arr: list) -> tuple[typing.Any, list]:
-    if len(argv) < 1:
-        error(Error.CMD, "Not enough arguments!", LogFlag.WARNING)
+    if len(arr) < 1:
+        error(Error.CMD, "Not enough arguments!", flags = LogFlag.WARNING)
     return (arr[0], arr[1:])
 
 alone_token: dict[str, TOKENS] = {
@@ -485,7 +500,7 @@ set_token: dict[str, TOKENS] = {
     "#mode" : TOKENS.MODE,
 }
 
-option_token: dict[str, TOKENS] = {
+option_token: dict[str, COMMODE] = {
     "linux" : COMMODE.LINUX,
     "dos"   : COMMODE.DOS,
 }
@@ -551,7 +566,7 @@ operand_map: dict[str, OP] = {
     ";"     : OP.COLON,
 }
 
-arithmetic_ops: tuple[OP] = (
+arithmetic_ops: tuple[OP,...] = (
     OP.ADD,
     OP.SUB,
     OP.MUL,
@@ -559,7 +574,7 @@ arithmetic_ops: tuple[OP] = (
     OP.SHR,
 )
 
-condition_ops: tuple[OP] = (
+condition_ops: tuple[OP,...] = (
     OP.EQUAL,
     OP.GREATER,
     OP.LESS,
@@ -574,21 +589,21 @@ type_map: dict[str, DT] = {
     "u8"    : DT.UINT8
 }
 
-unprotected_static_token = {
+unprotected_static_token: dict[str, Token] = {
 }
 
 def Switch_Ops(data: codeBlock, index1: int, index2: int) -> codeBlock:
 
     tmp = data.tokens[index1]
     data.tokens[index1] = data.tokens[index2]
-    data.tokens[index1].loc = tmp.loc
-    tmp2 = data.tokens[index2]
+    #data.tokens[index1].loc = tmp.loc
+    #tmp2 = data.tokens[index2]
     data.tokens[index2] = tmp
-    data.tokens[index2].loc = tmp2.loc
+    #data.tokens[index2].loc = tmp2.loc
 
     return data
 
-def Shift_listOps(data: list[OpType], shift: int) -> list[OpType]:
+def Shift_listOps(data: list[OpType | codeBlock], shift: int) -> list[OpType]:
     
     index = 0
     while index < len(data):
@@ -612,7 +627,7 @@ def Shift_codeBlock(data: codeBlock, shift: int) -> codeBlock:
     
     return data
 
-def Parse_condition_block(data: codeBlock, type: OP) -> list[OpType]:
+def Parse_condition_block(data: codeBlock, typeof: OP) -> list[OpType]:
 
     # FIX LABELS WHEN TESTING? (idk why the problem is here)
 
@@ -656,7 +671,7 @@ def Parse_condition_block(data: codeBlock, type: OP) -> list[OpType]:
                 if not len(left):
                     error(Error.PARSE, f"Empty {bolden("left-side")} of condition! {WARN_}loc = {data.tokens[index].loc}{BACK_}", flags = LogFlag.FAIL)
                 if not left_or_right:
-                    error(Error.PARSE, f"multiple conditions in condition codeBlock are not supported yet", flags = LogFlag.FAIL)
+                    error(Error.PARSE, "multiple conditions in condition codeBlock are not supported yet", flags = LogFlag.FAIL)
                 condition = data.tokens[index]
                 left_or_right = False
             case _:
@@ -666,10 +681,10 @@ def Parse_condition_block(data: codeBlock, type: OP) -> list[OpType]:
     if not len(right) or r_count*2-1 != len(right):
         error(Error.PARSE, f"Empty {bolden("right-side")} of condition! {WARN_}loc = {data.tokens[index].loc}{BACK_}", flags = LogFlag.FAIL)
     if not len(left) or l_count*2-1 != len(left):
-        error(Error.PARSE, f"condidion codeBlock is empty!", flags = LogFlag.FAIL)
-    if condition == None:
-        error(Error.PARSE, f"No condition token found", flags = LogFlag.FAIL)
-    if type == OP.WHILE:
+        error(Error.PARSE, "condidion codeBlock is empty!", flags = LogFlag.FAIL)
+    if condition is None:
+        error(Error.PARSE, "No condition token found", flags = LogFlag.FAIL)
+    if typeof == OP.WHILE:
         return [OpType(OP.LABEL, (loc:=left[0].loc), ("",-1,-1), f"label{loc}")] + Shift_listOps(left + [condition] + right + [OpType(OP.CONJUMP, right[-1].loc+1, ("",-1,-1))], 1)
     return left + [condition] + right + [OpType(OP.CONJUMP, right[-1].loc+1, ("",-1,-1))]
 
@@ -693,9 +708,9 @@ def Third_token_parse(data: codeBlock) -> codeBlock:
         match data.tokens[index].type:
             case OP.IF:
                 if index+2 >= len(data.tokens):
-                    error()
+                    error(Error.PARSE, "If keyword at the end of file")
                 if data.tokens[index+1].type != CB.CONDITION:
-                    error()
+                    error(Error.PARSE, "codeBlock not a type of condition after If keyword")
                 # Update Parse_condition_block to
                 # 
                 # return list of tokens
@@ -705,7 +720,7 @@ def Third_token_parse(data: codeBlock) -> codeBlock:
                 index_offset += 1
 
                 if data.tokens[index+2].type != CB.CODE:
-                    error()
+                    error(Error.PARSE, "codeBlock not a type of code after If keyword")
                 is_else: bool = False
                 if index+4 < len(data.tokens):
                     if data.tokens[index+3].type == OP.ELSE:
@@ -742,7 +757,7 @@ def Third_token_parse(data: codeBlock) -> codeBlock:
                 
             case OP.WHILE:
                 if index+2 >= len(data.tokens):
-                    error()
+                    error(Error.PARSE, "While keyword at the end of file")
                 if data.tokens[index+1].type != CB.CONDITION:
                     error(Error.PARSE, f"Non Condition codeBlock after While at `{index}`")
                 # Update Parse_condition_block to
@@ -754,7 +769,7 @@ def Third_token_parse(data: codeBlock) -> codeBlock:
                 index_offset += 2
 
                 if data.tokens[index+2].type != CB.CODE:
-                    error()
+                    error(Error.PARSE, "codeBlock not a type of code after While keyword")
                 con_token_list[-1].value = f"label{data.tokens[index+2].tokens[-1].loc+2+index_offset}"
                 #for i, x in enumerate(con_token_list):
                     #print("con > >", x, index + index_offset + i)
@@ -790,18 +805,18 @@ def Secound_token_parse(data: codeBlock, index_offset: int = 0) -> codeBlock:
             case OP.TYPE:
                 if index+1 < len(data.tokens):
                     if data.tokens[index+1].type == OP.VAR:
-                        if not (n:=Var(data.tokens[index].value, (m:=data.tokens[index+1].value))) in data.vars.values():
+                        if (n:=Var(data.tokens[index].value, (m:=data.tokens[index+1].value))) not in data.vars.values():
                             data.vars[m] = n
                             data.tokens.pop(index)
                             index_offset -= 1
                         else:
-                            error(Error.PARSE, f"var already stated", flags = LogFlag.FAIL)
+                            error(Error.PARSE, "var already stated", flags = LogFlag.FAIL)
                     else:
-                        error(Error.PARSE, f"no var token after type", flags = LogFlag.FAIL)
+                        error(Error.PARSE, "no var token after type", flags = LogFlag.FAIL)
                 else:
-                    error(Error.PARSE, f"type at the end of file", flags = LogFlag.FAIL)
+                    error(Error.PARSE, "type at the end of file", flags = LogFlag.FAIL)
             case OP.VAR:
-                if not (n:=data.tokens[index].value) in data.vars.keys():
+                if (n:=data.tokens[index].value) not in data.vars.keys():
                     error(Error.PARSE, f"Variable `{BOLD_}{n}{BACK_}` stated without assigment!", flags = LogFlag.FAIL)
 
             case CB.CODE | CB.CONDITION | CB.RESOLVE:
@@ -854,10 +869,10 @@ def First_token_parse(data: list[Token]) -> codeBlock:
                 match data[index].name:
                     case ")":
                         if codeBlock_stack[-1].type != CB.CONDITION:
-                            error(Error.PARSE, f"Found wrong codeBlock closing!", expected = (')',data[index].name), flags = LogFlag.FAIL | LogFlag.EXPECTED)
+                            error(Error.PARSE, "Found wrong codeBlock closing!", expected = (')',data[index].name), flags = LogFlag.FAIL | LogFlag.EXPECTED)
                     case "{":
                         if codeBlock_stack[-1].type != CB.CODE:
-                            error(Error.PARSE, f"Found wrong codeBlock closing!", expected = ('}',data[index].name), flags = LogFlag.FAIL | LogFlag.EXPECTED)
+                            error(Error.PARSE, "Found wrong codeBlock closing!", expected = ('}',data[index].name), flags = LogFlag.FAIL | LogFlag.EXPECTED)
                 codeBlock_stack[-2].tokens.append(codeBlock_stack.pop())
                 index_offset -= 1
             case _:
@@ -866,6 +881,7 @@ def First_token_parse(data: list[Token]) -> codeBlock:
     return codeBlock_stack[-1]
 
 def Parse_token(file_path: str, loc: tuple[int, int], data: str) -> list[Token]:
+
     global Com_Mode
 
     if (n:=TOKENS.COUNT.value) != (m:=11):
@@ -880,7 +896,7 @@ def Parse_token(file_path: str, loc: tuple[int, int], data: str) -> list[Token]:
         ret += [Token(TOKENS.NOTOKEN, (file_path,)+loc, data)]
         data = ""
     elif Com_Mode == COMMODE.SET:
-        if not data in option_token:
+        if data not in option_token:
             error(Error.PARSE, f"Wrong option for `{bolden("#mode")}` probided, found `{bolden(data)}`")
         Com_Mode = option_token[data]
         ret += [Token(TOKENS.NOTOKEN, (file_path,)+loc, data)]
@@ -890,6 +906,7 @@ def Parse_token(file_path: str, loc: tuple[int, int], data: str) -> list[Token]:
         data = ""
     elif data in protected_token:
         if data == "dos" and Com_Mode != COMMODE.DOS:
+            print(Com_Mode)
             error(Error.PARSE, f"Usage of `{bolden("dos")}` token in non-DOS mode of compilation")
         elif data == "linux" and Com_Mode != COMMODE.LINUX:
             error(Error.PARSE, f"Usage of `{bolden("linux")}` token in non-LINUX mode of compilation")
@@ -917,7 +934,7 @@ def Parse_token(file_path: str, loc: tuple[int, int], data: str) -> list[Token]:
             data = ""
         if data:
             if data[0].isdigit():
-                error(Error.TOKENIZE, f"name token cannot begin with a number", flags = LogFlag.FAIL)
+                error(Error.TOKENIZE, "name token cannot begin with a number", flags = LogFlag.FAIL)
             ret += [Token(TOKENS.NAME, (file_path,)+loc, data)]
             #assert False, "unknown keyword %s" % (data)
 
@@ -933,9 +950,9 @@ def Print_codeBlock_ops(data: codeBlock, suffix="", color_offset = 0) -> None:
             error(Error.TEST, f"{suffix}in {data.id} > {x}\n", flags = color[(i+color_offset) // 5 % len(color)], exitAfter = False)
     return len(data.tokens)
 
-def Parse_file(input: str) -> list:
+def Parse_file(in_path: str) -> list:
     data = []
-    with open(input, 'r') as f:
+    with open(in_path, 'rt', encoding='utf-8') as f:
         data = f.read()
     
     tokens: list[TOKENS] = []
@@ -949,7 +966,7 @@ def Parse_file(input: str) -> list:
         match data[index]:
             case '\\':
                 if slash_before and not string_literal:
-                    tokens += Parse_token(input, loc, token)
+                    tokens += Parse_token(in_path, loc, token)
                     index = data[index:].find("\n")+index
                     if not index:
                         break
@@ -966,34 +983,33 @@ def Parse_file(input: str) -> list:
                 else:
                     string_literal = True
             case '\n':
-                tokens += Parse_token(input, loc, token)
+                tokens += Parse_token(in_path, loc, token)
                 token = ""
                 slash_before = False
                 loc = (loc[0]+1, 0)
             case ' ':
                 if not string_literal:
-                    tokens += Parse_token(input, loc, token)
+                    tokens += Parse_token(in_path, loc, token)
                     token = ""
                 else:
                     token = token + data[index]
                 slash_before = False
-            case x if type(x) == str:
+            case x if isinstance(x, str):
                 token = token + data[index]
                 if slash_before and string_literal:
                     token = token.encode("utf-8").decode("unicode_escape")
             case _:
-                error(Error.TOKENIZE, f"{input}:{loc[0]}:{loc[1]} Error while tokenizing file, incorrect character?", expected = ("any character",data[index]), flags = LogFlag.FAIL | LogFlag.EXPECTED)
+                error(Error.TOKENIZE, f"{in_path}:{loc[0]}:{loc[1]} Error while tokenizing file, incorrect character?", expected = ("any character",data[index]), flags = LogFlag.FAIL | LogFlag.EXPECTED)
         index += 1
         loc = (loc[0], loc[1]+1)
-    tokens += Parse_token(input, loc, token)
+    tokens += Parse_token(in_path, loc, token)
     token = ""
 
-    #for x in [op for row, line in enumerate(data) for op in Parse_line(input, row, line)]:
+    #for x in [op for row, line in enumerate(data) for op in Parse_line(in_path, row, line)]:
         #print(x)
     return Third_token_parse(Secound_token_parse(First_token_parse([tok for tok in tokens])))
     #Print_codeBlock_ops(ops)
-    
-    #return Parse_jump(resolve_names([op for row, line in enumerate(data) for op in Parse_line(input, row, line)]))
+    #return Parse_jump(resolve_names([op for row, line in enumerate(data) for op in Parse_line(in_path, row, line)]))
 
 # ------------------------------------------------------
 # -------------------- TEST SECTION --------------------
@@ -1005,13 +1021,13 @@ class dataHolder:
     
     def compare_with_file(self, file_path):
         data: str = ""
-        with open(file_path, 'r') as f:
+        with open(file_path, 'rt', encoding='utf-8') as f:
             data = f.read()
         return data == self.data
 
 def record_test():
     for x in glob.glob("./tests/*.mand"):
-        with open(x[:-5]+".txt", "w") as f:
+        with open(x[:-5]+".txt", "wt", encoding='utf-8') as f:
             simulate_data(Parse_file(x), out = f)
 
 def compare_test():
@@ -1036,18 +1052,18 @@ if __name__ == "__main__":
             input_file, argv = unpack(argv)
 
             if not os.path.isfile(input_file):
-                error(Error.CMD, f"Wrong file provided, compiller couldn't find file at a `%s` location" % (input_file), flags = LogFlag.WARNING)
-            data = Parse_file(input_file)
+                error(Error.CMD, f"Wrong file provided, compiller couldn't find file at a `{input_file}` location", flags = LogFlag.WARNING)
+            parsed = Parse_file(input_file)
             
-            compile_data(data)
+            compile_data(parsed)
         case '-s':
             input_file, argv = unpack(argv)
 
             if not os.path.isfile(input_file):
                 error(Error.CMD, f"Wrong file provided, compiller couldn't find file at a `{input_file}` location", flags = LogFlag.WARNING)
-            data = Parse_file(input_file)
+            parsed = Parse_file(input_file)
             
-            simulate_data(data)
+            simulate_data(parsed)
         case '-t':
             test_type: str
 
