@@ -69,6 +69,7 @@ class OP(Enum):
     SUB         = auto()
     MUL         = auto()
     DIV         = auto()
+    MOD         = auto()
     SHL         = auto()
     SHR         = auto()
     EQUAL       = auto()
@@ -258,7 +259,7 @@ def gen_asm_debug(operation: str, register: str, data: str | int, dataType: DT |
                     if ax_used and register and operation == 'mov':
                         ret = f"\txor {register}x, {register}x\n"
                         ax_used = False
-                    ret += f"\t{operation} {register + 'l, ' if register else ''}offset {data}\n"
+                    ret += f"\t{operation} {register + 'x, ' if register else ''}offset {data}\n"
             case DT.UINT16MEM:
                 if force_value:
                     (ax_used, ret) = gen_asm_debug(operation, register, data, DT.UINT16, ax_used)
@@ -273,7 +274,7 @@ def gen_asm_debug(operation: str, register: str, data: str | int, dataType: DT |
 
 def compile_data(data: list[dict]) -> None:
 
-    if (n:=OP.COUNT.value) != (m:=35):
+    if (n:=OP.COUNT.value) != (m:=36):
         error(Error.ENUM, f"{BOLD_}Exhaustive operation parsing protection in {BOLD_}compile_data{BACK_}", expected = (m,n), flags = LogFlag.FAIL | LogFlag.EXPECTED)
     
     heap = bytearray(HEAP_SIZE)
@@ -309,7 +310,7 @@ def compile_data(data: list[dict]) -> None:
         buffor_data = buffor_data + ".DATA\n"
         buffor_code = buffor_code + ".CODE\nstart:\n\tmov ax, @data\n\tmov ds, ax\n"
 
-        for x in data.tokens:
+        for ip, x in enumerate(data.tokens):
             match x.type:
                 case OP.NUM:
                     stack.append(int(x.value))
@@ -366,7 +367,7 @@ def compile_data(data: list[dict]) -> None:
                             ax_used = True
                             buffor_code = buffor_code + f"\tadd ax, {a}\n"
                         else:
-                            (ax_used, op) = gen_asm_debug('add', 'a', a, data.vars[b].type, state, ax_used, force_value=True)
+                            (ax_used, op) = gen_asm_debug('add', 'a', a, data.vars[a].type, state, ax_used, force_value=True)
                             buffor_code = buffor_code + op
                         #buffor_code = buffor_code + f"\tadd ax, {a if isinstance(a, int) else f'[{a}]'}\n"
                 case OP.SUB:
@@ -433,11 +434,38 @@ def compile_data(data: list[dict]) -> None:
                             buffor_code = buffor_code + op
                         if isinstance(a, int):
                             ax_used = True
-                            buffor_code = buffor_code + f"\tdiv BYTE {a}\n"
+                            buffor_code = buffor_code + f"\tmov cx, {a}\n"
+                            buffor_code = buffor_code + f"\tdiv cl\n"
                         else:
                             (ax_used, op) = gen_asm_debug('div BYTE', '', a, data.vars[b].type, state, ax_used, force_value=True)
                             buffor_code = buffor_code + op
                         #buffor_code = buffor_code + f"\tdiv BYTE {a if isinstance(a, int) else f'[{a}]'}\n"
+                        buffor_code = buffor_code + f"\txor ah, ah\n"
+                case OP.MOD:
+                    buffor_code = buffor_code + ";; -- MOD --\n"
+                    if begin_arith:
+                        a = stack.pop()
+                        (ax_used, op) = gen_asm_debug('div', '', a, None if isinstance(a, int) else data.vars[a].type, state, ax_used)
+                        buffor_code = buffor_code + op
+                    else:
+                        begin_arith = True
+                        a = stack.pop()
+                        b = stack.pop()
+                        if isinstance(b, int):
+                            ax_used = True
+                            buffor_code = buffor_code + f"\tmov ax, {b}\n"
+                        else:
+                            (ax_used, op) = gen_asm_debug('mov', 'a', b, data.vars[b].type, state, ax_used)
+                            buffor_code = buffor_code + op
+                        if isinstance(a, int):
+                            ax_used = True
+                            buffor_code = buffor_code + f"\tmov cx, {a}\n"
+                            buffor_code = buffor_code + f"\tdiv cl\n"
+                        else:
+                            (ax_used, op) = gen_asm_debug('div BYTE', '', a, data.vars[b].type, state, ax_used, force_value=True)
+                            buffor_code = buffor_code + op
+                        #buffor_code = buffor_code + f"\tdiv BYTE {a if isinstance(a, int) else f'[{a}]'}\n"
+                        buffor_code = buffor_code + f"\tmov al, ah\n"
                         buffor_code = buffor_code + f"\txor ah, ah\n"
                 case OP.SHL:
                     if begin_arith:
@@ -599,15 +627,40 @@ def compile_data(data: list[dict]) -> None:
                     state = ComState.NONE
                     match condition:
                         case OP.EQUAL:
-                            buffor_code = buffor_code + f"\tjne {x.value}\n"
+                            if ip - int(x.value[5:]) < -30:
+                                buffor_code = buffor_code + f"\tje bar{ip}\n"
+                                buffor_code = buffor_code + f"\tjmp {x.value}\n"
+                                buffor_code = buffor_code + f"bar{ip}:\n"
+                            else:
+                                buffor_code = buffor_code + f"\tjne {x.value}\n"
                         case OP.GREATER:
-                            buffor_code = buffor_code + f"\tjle {x.value}\n"
+                            if ip - int(x.value[5:]) < -30:
+                                buffor_code = buffor_code + f"\tjg bar{ip}\n"
+                                buffor_code = buffor_code + f"\tjmp {x.value}\n"
+                                buffor_code = buffor_code + f"bar{ip}:\n"
+                            else:
+                                buffor_code = buffor_code + f"\tjle {x.value}\n"
                         case OP.LESS:
-                            buffor_code = buffor_code + f"\tjge {x.value}\n"
+                            if ip - int(x.value[5:]) < -30:
+                                buffor_code = buffor_code + f"\tjl bar{ip}\n"
+                                buffor_code = buffor_code + f"\tjmp {x.value}\n"
+                                buffor_code = buffor_code + f"bar{ip}:\n"
+                            else:
+                                buffor_code = buffor_code + f"\tjge {x.value}\n"
                         case OP.GE:
-                            buffor_code = buffor_code + f"\tjl {x.value}\n"
+                            if ip - int(x.value[5:]) < -30:
+                                buffor_code = buffor_code + f"\tjge bar{ip}\n"
+                                buffor_code = buffor_code + f"\tjmp {x.value}\n"
+                                buffor_code = buffor_code + f"bar{ip}:\n"
+                            else:
+                                buffor_code = buffor_code + f"\tjl {x.value}\n"
                         case OP.LE:
-                            buffor_code = buffor_code + f"\tjg {x.value}\n"
+                            if ip - int(x.value[5:]) < -30:
+                                buffor_code = buffor_code + f"\tle bar{ip}\n"
+                                buffor_code = buffor_code + f"\tjmp {x.value}\n"
+                                buffor_code = buffor_code + f"bar{ip}:\n"
+                            else:
+                                buffor_code = buffor_code + f"\tjg {x.value}\n"
                     begin_arith = False
                 case OP.JUMP:
                     buffor_code = buffor_code + f"\tjmp {x.value}\n"
@@ -672,15 +725,18 @@ def compile_data(data: list[dict]) -> None:
                 case OP.DOS:
                     a = stack.pop()
                     if a == 9:
+                        if len(stack) > 0:
+                            b = stack.pop()
+                            if isinstance(b, str):
+                                buffor_code = buffor_code + f"\tmov dx, offset {b}\n"
+                            else:
+                                error(Error.COMPILE, "int type in dos call for address")
+                        else:
+                            buffor_code = buffor_code + f"\tmov dx, ax\n"
                         if ax_used:
                             buffor_code = buffor_code + "\txor ax, ax\n"  
                         ax_used = True
                         buffor_code = buffor_code + "\tmov ah, 9\n"
-                        b = stack.pop()
-                        if isinstance(b, str):
-                            buffor_code = buffor_code + f"\tmov dx, offset {b}\n"
-                        else:
-                            error(Error.COMPILE, "int type in dos call for address")
                         buffor_code = buffor_code + "\tint 21h\n"
                     elif a == 10:
                         if ax_used:
@@ -712,16 +768,31 @@ def compile_data(data: list[dict]) -> None:
                             error(Error.SIMULATE, "other file descriptors than `1` and `2` are not supported yet, skipping...", exitAfter=False)
 
                 case OP.MEMWRITE:
+                    buffor_code += ";; -- MEMWRITE --\n"
                     a = stack.pop()
-                    b = stack.pop()
-                    if isinstance(b, str):
-                        buffor_code = buffor_code + f"\tmov [{b}]"
-                        if isinstance(a, str):
-                            buffor_code = buffor_code + f", [{a}]\n"
+                    if len(stack) > 0:
+                        b = stack.pop()
+                        if isinstance(b, str):
+                            if isinstance(a, str):
+                                (_, op) = gen_asm_debug('mov', 'b', a, data.vars[a].type, force_value=True)
+                                buffor_code = buffor_code + op
+                                buffor_code = buffor_code + f"\tmov si, WORD PTR [{b}]\n"
+                                buffor_code = buffor_code + f"\tmov BYTE PTR [si], {'bx' if data.vars[a].type == DT.UINT16MEM else 'bl'}\n"
+                            else:
+                                buffor_code = buffor_code + f"\tmov si, WORD PTR [{b}]\n"
+                                buffor_code = buffor_code + f"\tmov BYTE PTR [si], {a}\n"
                         else:
-                            buffor_code = buffor_code + f", {a}\n"
+                            buffor_code = buffor_code + f"\tmov [ax], {b}\n"
+                            pass
+                            error(Error.COMPILE, "int type in memwrite for address")
                     else:
-                        error(Error.COMPILE, "int type in memwrite for address")
+                        if isinstance(a, str):
+                            buffor_code = buffor_code + f"\tmov di, ax\n"
+                            buffor_code = buffor_code + f"\tmov BYTE PTR [di], [{a}]\n"
+                        else:
+                            buffor_code = buffor_code + f"\tmov di, ax\n"
+                            buffor_code = buffor_code + f"\tmov BYTE PTR [di], {a}\n"
+
                     #print(ip, a, data.vars[temp1].type)
                     #match data.vars[temp1].type:
                         #case DT.UINT8MEM:
@@ -779,7 +850,9 @@ def compile_data(data: list[dict]) -> None:
                             if isinstance(a, int):
                                 buffor_code = buffor_code + f"\tmov [{data.vars[temp1].name}], {a}\n"
                             else:
-                                buffor_code = buffor_code + f"\tmov [{data.vars[temp1].name}], [{a}]\n"
+                                (_, op) = gen_asm_debug('mov', 'b', a, data.vars[a].type, force_value=True)
+                                buffor_code = buffor_code + op
+                                buffor_code = buffor_code + f"\tmov [{data.vars[temp1].name}], {'bx' if data.vars[temp1].type == DT.UINT16MEM else 'bl'}\n"
                         else:
                             if data.vars[temp1].type in [DT.UINT8]:
                                 buffor_code = buffor_code + f"\tmov [{data.vars[temp1].name}], al\n"
@@ -791,7 +864,7 @@ def compile_data(data: list[dict]) -> None:
                         #data.vars[temp1].value = bytearray(bfromNum(data.vars[temp1].type, stack[-1]))
                     state = ComState.NONE
                     begin_arith = False
-            #print(x)
+            #print(stack, x)
             #input()
         buffor_code = buffor_code + "\tmov ah, 4Ch\n\tint 21h\nEND start"
         #print(buffor_start, buffor_data, buffor_code)
@@ -1066,6 +1139,7 @@ indifferent_token: dict[str, TOKENS] = {
     "+"     : TOKENS.OPERAND,
     "-"     : TOKENS.OPERAND,
     "/"     : TOKENS.OPERAND,
+    "%"     : TOKENS.OPERAND,
     "*"     : TOKENS.OPERAND,
     "{"     : TOKENS.CODEOPEN,
     "("     : TOKENS.CODEOPEN,
@@ -1099,6 +1173,7 @@ operand_map: dict[str, OP] = {
     "+"     : OP.ADD,
     "-"     : OP.SUB,
     "/"     : OP.DIV,
+    "%"     : OP.MOD,
     "*"     : OP.MUL,
     ";"     : OP.COLON,
 }
@@ -1140,26 +1215,44 @@ def Switch_Ops(data: codeBlock, index1: int, index2: int) -> codeBlock:
 
     return data
 
-def Shift_listOps(data: list[OpType | codeBlock], shift: int) -> list[OpType]:
+def Shift_listOps(data: list[OpType | codeBlock], since: int, shift: int) -> list[OpType]:
     
-    index = 0
+    index = since
     while index < len(data):
         if data[index].type in OP:
+            if data[index].type == OP.LABEL:
+                x = data[index].value[:5] + str(int(data[index].value[5:]) + shift)
+                indexx = since
+                while indexx > -1:
+                    if data[indexx].type == OP.CONJUMP and data[indexx].value == data[index].value:
+                        data[indexx].value = x
+                        break
+                    indexx -= 1
+                data[index].value = x
             data[index].loc += shift
         elif data[index].type in CB:
-            Shift_codeBlock(data[index], shift)
+            Shift_codeBlock(data[index], 0, shift)
         index += 1
     
     return data
 
-def Shift_codeBlock(data: codeBlock, shift: int) -> codeBlock:
+def Shift_codeBlock(data: codeBlock, since: int, shift: int) -> codeBlock:
     
-    index = 0
+    index = since
     while index < len(data.tokens):
         if data.tokens[index].type in OP:
+            if data.tokens[index].type == OP.LABEL:
+                x = data.tokens[index].value[:5] + str(int(data.tokens[index].value[5:]) + shift)
+                indexx = since
+                while indexx > -1:
+                    if data.tokens[indexx].type == OP.CONJUMP and data.tokens[indexx].value == data.tokens[index].value:
+                        data.tokens[indexx].value = x
+                        break
+                    indexx -= 1
+                data[index].value = x
             data.tokens[index].loc += shift
         elif data.tokens[index].type in CB:
-            Shift_codeBlock(data.tokens[index], shift)
+            Shift_codeBlock(data.tokens[index], 0, shift)
         index += 1
     
     return data
@@ -1168,7 +1261,7 @@ def Parse_condition_block(data: codeBlock, typeof: OP) -> list[OpType]:
 
     # FIX LABELS WHEN TESTING? (idk why the problem is here)
 
-    if (n:=OP.COUNT.value) != (m:=35):
+    if (n:=OP.COUNT.value) != (m:=36):
         error(Error.ENUM, f"{BOLD_}Exhaustive operation parsing protection in {BOLD_}Parse_condition_block{BACK_}", expected = (m,n), flags = LogFlag.FAIL | LogFlag.EXPECTED)
     if data.type != CB.CONDITION:
         error(Error.PARSE, f"Passed non-condition type codeblock to {BOLD_}Parse_condition_block{BACK_}", flags = LogFlag.FAIL)
@@ -1235,12 +1328,12 @@ def Parse_condition_block(data: codeBlock, typeof: OP) -> list[OpType]:
     if condition is None:
         error(Error.PARSE, "No condition token found", flags = LogFlag.FAIL)
     if typeof == OP.WHILE:
-        return [OpType(OP.LABEL, (loc:=left[0].loc), ("",-1,-1), f"label{loc}")] + Shift_listOps(left + [condition] + right + [OpType(OP.CONJUMP, right[-1].loc+1, ("",-1,-1))], 1)
+        return [OpType(OP.LABEL, (loc:=left[0].loc), ("",-1,-1), f"label{loc}")] + Shift_listOps(left + [condition] + right + [OpType(OP.CONJUMP, right[-1].loc+1, ("",-1,-1))], 0, 1)
     return left + [condition] + right + [OpType(OP.CONJUMP, right[-1].loc+1, ("",-1,-1))]
 
 def Third_token_parse(data: codeBlock) -> codeBlock:
     
-    if (n:=OP.COUNT.value) != (m:=35):
+    if (n:=OP.COUNT.value) != (m:=36):
         error(Error.ENUM, f"{BOLD_}Exhaustive operation parsing protection in {BOLD_}Third_token_parse{BACK_}", expected = (m,n), flags = LogFlag.FAIL | LogFlag.EXPECTED)
     if (n:=CB.COUNT.value) != (m:=5):
         error(Error.ENUM, f"{BOLD_}Exhaustive codeBlock parsing protection in {BOLD_}Third_token_parse{BACK_}", expected = (m,n), flags = LogFlag.FAIL | LogFlag.EXPECTED)
@@ -1282,14 +1375,14 @@ def Third_token_parse(data: codeBlock) -> codeBlock:
                 #for i, x in enumerate(con_token_list):
                     #print("con > >", x, index + index_offset + i)
                 code_token_list: list[OpType] = []
-                data.tokens[index+2] = Shift_codeBlock(data.tokens[index+2], index_offset)
+                data.tokens = Shift_codeBlock(data.tokens, index+1, index_offset)
                 if is_else:
                     data.tokens[index+2].tokens.append(OpType(OP.JUMP, data.tokens[index+2].tokens[-1].loc+1, ("",-1,-1), f"label{data.tokens[index+4].tokens[-1].loc+2+index_offset}"))
                 data.tokens[index+2].tokens.append(OpType(OP.LABEL, (loc:=data.tokens[index+2].tokens[-1].loc+1), ("",-1,-1), f"label{loc}"))
                 code_token_list += data.tokens[index+2].tokens
                 index_offset += 1
                 if is_else:
-                    data.tokens[index+4] = Shift_codeBlock(data.tokens[index+4], index_offset)
+                    data.tokens = Shift_codeBlock(data.tokens, index+3, index_offset)
                     data.tokens[index+4].tokens.append(OpType(OP.LABEL, (loc:=data.tokens[index+4].tokens[-1].loc+1), ("",-1,-1), f"label{loc}"))
                     code_token_list += data.tokens[index+4].tokens
                     index_offset += 1
@@ -1301,7 +1394,7 @@ def Third_token_parse(data: codeBlock) -> codeBlock:
                 if is_else:
                     data.tokens.pop(index+1)
                     data.tokens.pop(index+1)
-                data.tokens[index+1:] = Shift_listOps(data.tokens[index+1:], index_offset)
+                data.tokens = Shift_listOps(data.tokens, index, index_offset)
                 for i, x in enumerate(con_token_list + code_token_list):
                     data.tokens.insert(index+1+i, x)
                 
@@ -1324,7 +1417,7 @@ def Third_token_parse(data: codeBlock) -> codeBlock:
                 #for i, x in enumerate(con_token_list):
                     #print("con > >", x, index + index_offset + i)
                 code_token_list: list[OpType] = []
-                data.tokens[index+2] = Shift_codeBlock(data.tokens[index+2], index_offset)
+                data.tokens = Shift_listOps(data.tokens, index+1, index_offset)
                 data.tokens[index+2].tokens.append(OpType(OP.JUMP, data.tokens[index+2].tokens[-1].loc+1, ("",-1,-1), f"label{con_token_list[0].loc}"))
                 data.tokens[index+2].tokens.append(OpType(OP.LABEL, (loc:=data.tokens[index+2].tokens[-1].loc+1), ("",-1,-1), f"label{loc}"))
                 code_token_list += data.tokens[index+2].tokens
@@ -1334,7 +1427,7 @@ def Third_token_parse(data: codeBlock) -> codeBlock:
                 
                 data.tokens.pop(index+1)
                 data.tokens.pop(index+1)
-                data.tokens[index+1:] = Shift_listOps(data.tokens[index+1:], index_offset)
+                data.tokens = Shift_listOps(data.tokens, index, index_offset)
                 for i, x in enumerate(con_token_list + code_token_list):
                     data.tokens.insert(index+1+i, x)
                 data = Switch_Ops(data, index, index+1)
@@ -1344,7 +1437,7 @@ def Third_token_parse(data: codeBlock) -> codeBlock:
 
 def Secound_token_parse(data: codeBlock, index_offset: int = 0) -> codeBlock:
 
-    if (n:=OP.COUNT.value) != (m:=35):
+    if (n:=OP.COUNT.value) != (m:=36):
         error(Error.ENUM, f"{BOLD_}Exhaustive operation parsing protection in {BOLD_}Secound_token_parse{BACK_}", expected = (m,n), flags = LogFlag.FAIL | LogFlag.EXPECTED)
     if (n:=CB.COUNT.value) != (m:=5):
         error(Error.ENUM, f"{BOLD_}Exhaustive codeBlock parsing protection in {BOLD_}Secound_token_parse{BACK_}", expected = (m,n), flags = LogFlag.FAIL | LogFlag.EXPECTED)
@@ -1380,7 +1473,7 @@ def Secound_token_parse(data: codeBlock, index_offset: int = 0) -> codeBlock:
         
 def First_token_parse(data: list[Token]) -> codeBlock:
 
-    if (n:=OP.COUNT.value) != (m:=35):
+    if (n:=OP.COUNT.value) != (m:=36):
         error(Error.ENUM, f"{BOLD_}Exhaustive operation parsing protection in {BOLD_}First_token_parse{BACK_}", expected = (m,n), flags = LogFlag.FAIL | LogFlag.EXPECTED)
 
     # ret: codeBlock = codeBlock(0) this line was bugging tests, actually stupid bug
