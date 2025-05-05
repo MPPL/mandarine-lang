@@ -1,37 +1,35 @@
 #mode dos
 u8p test = "Test String\n";
 u8p input = 257 buf;
-u8p bin = 18 buf;
+u8p bin = 257 buf;
 u8p dec = 18 buf;
 u8p hex = 18 buf;
 u8p oct = 18 buf;
 
 input 10 dos ;
 
-u8 i = 0;
+u8 i = input 1+ ,mem ;
 u8 j = 0;
 
-u8 tmp1 = 0;
-u8 tmp2 = 0;
+u16 tmp1 = 0;
+u16 tmp2 = bin input 1+ ,mem 3 * 1 + + ;
 u8 tmp3 = 0;
 
 \\ input -> bin
 
-
-while(i > input 1+ ,mem ){
-    test 9 dos ;
-    tmp1 = input 2 i ++ ,mem 48-;
-    j = 0;
-    tmp2 = bin 1 + ;
-    while(j > 3){
-        tmp2 = tmp2 1 + ;
+while(i > 0){
+    \\test 9 dos ;
+    tmp1 = input 2 i 1 -++ ,mem 48-;
+    j = 3;
+    while(j > 0){
+        tmp2 = tmp2 1 - ;
         tmp3 = 48 tmp1 2 % +;
         tmp2 tmp3 .mem ;
         tmp1 = tmp1 2 /;
-        j = j 1 +;
+        j = j 1 -;
     }
-    i = i 1+;
+    i = i 1-;
 }
-tmp2 = tmp2 1 +;
+tmp2 = bin input 1+ ,mem 3 * 1 ++;
 tmp2 36 .mem ;
-bin 2 + 9 dos ;
+bin 1+ 9 dos ;

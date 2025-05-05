@@ -227,9 +227,9 @@ def bfromNum(type: DT, value: int) -> bytearray:
         case DT.UINT16:
             return bytearray([(value // 256) % 256, value % 256])
         case DT.UINT8MEM:
-            return bytearray([value % (1<<8)])
+            return bytearray([(value // 256) % 256, value % 256])
         case DT.UINT16MEM:
-            return bytearray([value % (1<<8)])
+            return bytearray([(value // 256) % 256, value % 256])
         case _:
             return bytearray([0])
     
@@ -872,7 +872,7 @@ def compile_data(data: list[dict]) -> None:
 
 def simulate_data(data: codeBlock, out = sys.stdout):
     
-    if (n:=OP.COUNT.value) != (m:=35):
+    if (n:=OP.COUNT.value) != (m:=36):
         error(Error.ENUM, f"{BOLD_}Exhaustive operation parsing protection in {BOLD_}simulate_data{BACK_}", expected = (m,n), flags = LogFlag.FAIL | LogFlag.EXPECTED)
     
     heap = bytearray(HEAP_SIZE)
@@ -892,7 +892,6 @@ def simulate_data(data: codeBlock, out = sys.stdout):
                 stack.append(int(x.value))
             case OP.STRING:
                 if ComState.VARDEF in state:
-                    
                     match data.vars[temp1].type:
                         case DT.UINT8MEM:
                             for y in range(len(x.value)):
@@ -925,6 +924,14 @@ def simulate_data(data: codeBlock, out = sys.stdout):
                 a = stack.pop()
                 b = stack.pop()
                 stack.append(b*a)
+            case OP.DIV:
+                a = stack.pop()
+                b = stack.pop()
+                stack.append(b // a)
+            case OP.MOD:
+                a = stack.pop()
+                b = stack.pop()
+                stack.append(b%a)
             case OP.SHL:
                 a = stack.pop()
                 b = stack.pop()
@@ -954,23 +961,48 @@ def simulate_data(data: codeBlock, out = sys.stdout):
                 match condition:
                     case OP.EQUAL:
                         if not b == a:
-                            ip = int(x.value[5:])
+                            ipx = ip
+                            while ipx < len(data.tokens):
+                                if (n:=data.tokens[ipx]).type == OP.LABEL and n.value[5:] == x.value[5:]:
+                                    ip = ipx
+                                    break
+                                ipx += 1
                             continue
                     case OP.GREATER:
                         if not b > a:
-                            ip = int(x.value[5:])
+                            ipx = ip
+                            while ipx < len(data.tokens):
+                                if (n:=data.tokens[ipx]).type == OP.LABEL and n.value[5:] == x.value[5:]:
+                                    ip = ipx
+                                    break
+                                ipx += 1
                             continue
                     case OP.LESS:
                         if not b < a:
-                            ip = int(x.value[5:])
+                            ipx = ip
+                            while ipx < len(data.tokens):
+                                if (n:=data.tokens[ipx]).type == OP.LABEL and n.value[5:] == x.value[5:]:
+                                    ip = ipx
+                                    break
+                                ipx += 1
                             continue
                     case OP.GE:
                         if not b >= a:
-                            ip = int(x.value[5:])
+                            ipx = ip
+                            while ipx < len(data.tokens):
+                                if (n:=data.tokens[ipx]).type == OP.LABEL and n.value[5:] == x.value[5:]:
+                                    ip = ipx
+                                    break
+                                ipx += 1
                             continue
                     case OP.LE:
                         if not b <= a:
-                            ip = int(x.value[5:])
+                            ipx = ip
+                            while ipx < len(data.tokens):
+                                if (n:=data.tokens[ipx]).type == OP.LABEL and n.value[5:] == x.value[5:]:
+                                    ip = ipx
+                                    break
+                                ipx += 1
                             continue
             case OP.JUMP:
                 ip = int(x.value[5:])
@@ -1002,8 +1034,8 @@ def simulate_data(data: codeBlock, out = sys.stdout):
                             a = stack.pop()
                         case DT.UINT16MEM:
                             a = stack.pop() * 2
-
                     data.vars[temp1].value = bytearray(bfromNum(data.vars[temp1].type, heap_end))
+                    heap[heap_end] = a-2
                     heap_end += a
                     #data.vars[temp1].value
                     state = ComState.NONE
@@ -1037,10 +1069,10 @@ def simulate_data(data: codeBlock, out = sys.stdout):
                             out.write(c)
                 elif a == 10:
                     b = stack.pop()
-                    c = input()[:256]
+                    c = input("> ")[:256]
                     for x in range(min(int(heap[b]),len(c))):
                         heap[b+2+x] = ord(c[x])
-                        print(ord(c[x]), end=" ")
+                        #print(ord(c[x]), end=" ")
                     heap[b+1] = len(c)
                 else:
                     error(Error.SIMULATE, "only 9 and 10 dos calls are implemented yet")
@@ -1064,18 +1096,18 @@ def simulate_data(data: codeBlock, out = sys.stdout):
                 b = stack.pop()
                 #print(ip, a, data.vars[temp1].type)
                 match data.vars[temp1].type:
-                    case DT.UINT8MEM:
+                    case DT.UINT8MEM | DT.UINT8:
                         heap[b] = bfromNum(DT.UINT8, a)[0]
-                    case DT.UINT16MEM:
+                    case DT.UINT16MEM | DT.UINT16:
                         heap[b:b+2] = bfromNum(DT.UINT16, a)
                     case _:
                         error(Error.SIMULATE, "MEM WRITE implemented only to UINT8MEM and UINT16MEM yet!")
             case OP.MEMREAD:
                 a = stack.pop()
                 match last_type:
-                    case DT.UINT8MEM:
+                    case DT.UINT8MEM | DT.UINT8:
                         stack.append(int.from_bytes(heap[a:a+1]))
-                    case DT.UINT16MEM:
+                    case DT.UINT16MEM | DT.UINT16:
                         stack.append(int.from_bytes(heap[a:a+2]))
                     case _:
                         error(Error.SIMULATE, "MEMREAD implemented only to UINT8MEM and UINT16MEM yet!")
@@ -1086,8 +1118,19 @@ def simulate_data(data: codeBlock, out = sys.stdout):
                     data.vars[temp1].value = bytearray(bfromNum(data.vars[temp1].type, stack.pop()))
                 state = ComState.NONE
         ip += 1
-        #print(stack, heap[:15], ip, x)
-        #input()
+        '''print(stack)
+        
+
+        print(ip, heap_end, x)
+        w = input()
+        if w in data.vars.keys():
+            print(data.vars[w])'''
+    print()
+    for z in range(10):
+        print(f"{z*100:>4}:", end=" ")
+        for y in range(100):
+            print(f"{chr(n) if (n:=heap[z*100+y]) != 10 and n != 0 else 'n' if n != 0 else " ":>1}", end=" ")
+        print()
     #print(heap[:15])
 
 def unpack(arr: list) -> tuple[typing.Any, list]:
@@ -1638,12 +1681,19 @@ def Parse_file(in_path: str) -> list:
                     token = token + data[index]
                 slash_before = False
             case x if isinstance(x, str):
-                if slash_before:
-                    token = token + '\\'
-                    slash_before = False
-                token = token + data[index]
+                #if slash_before:
+                    #token = token + '\\'
+                    #slash_before = False
                 if slash_before and string_literal:
-                    token = token.encode("utf-8").decode("unicode_escape")
+                    match data[index]:
+                        case 'n':
+                            token = token + '\n'
+                        case _:
+                            token = token + data[index]
+                            token = token.encode("utf-8").decode("unicode_escape")
+                    slash_before = False
+                else:
+                    token = token + data[index]
             case _:
                 error(Error.TOKENIZE, f"{in_path}:{loc[0]}:{loc[1]} Error while tokenizing file, incorrect character?", expected = ("any character",data[index]), flags = LogFlag.FAIL | LogFlag.EXPECTED)
         index += 1
