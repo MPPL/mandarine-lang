@@ -104,6 +104,8 @@ class OP(Enum):
     COUNT       = auto()
 
 class DT(Enum):
+    REGISTER    = auto()
+    REGISTERMEM = auto()
     IMMEDIATE   = auto()
     UINT8       = auto()
     UINT16      = auto()
@@ -167,6 +169,12 @@ class LogFlag(Flag):
     INFO        = auto()
     GOOD        = auto()
     EXPECTED    = auto()
+
+b8tuplel = ('al', 'bl', 'cl', 'dl', 'bpl', 'spl', 'dil', 'sil')
+b8tupleh = ('ah', 'bh', 'ch', 'dh', 'bpl', 'spl', 'dil', 'sil')
+b16tuple = ('ax', 'bx', 'cx', 'dx', 'bp', 'sp', 'di', 'si')
+b32tuple = ('eax', 'ebx', 'ecx', 'edx', 'ebp', 'esp', 'edi', 'esi')
+b64tuple = ('rax', 'rbx', 'rcx', 'rdx', 'rbp', 'rsp', 'rdi', 'rsi')
 
 def bolden(string: str) -> str:
     return f"{BOLD_}{string}{BACK_}"
@@ -249,12 +257,6 @@ class BITS(IntEnum):
 @lru_cache
 def regContruct(index: int, bits: BITS, source: bool = True, high: bool = False) -> tuple[BITS, str]:
 
-    b8tuplel = ('al', 'bl', 'cl', 'dl', 'bp', 'sp', 'di', 'si')
-    b8tupleh = ('ah', 'bh', 'ch', 'dh', 'bp', 'sp', 'di', 'si')
-    b16tuple = ('ax', 'bx', 'cx', 'dx', 'bp', 'sp', 'di', 'si')
-    b32tuple = ('eax', 'ebx', 'ecx', 'edx', 'ebp', 'esp', 'edi', 'esi')
-    b64tuple = ('rax', 'rbx', 'rcx', 'rdx', 'rbp', 'rsp', 'rdi', 'rsi')
-
     match bits:
         case BITS.B8:
             if not source:
@@ -304,30 +306,194 @@ def bitRange(data: int) -> BITS:
 def cutNumToBit(data: int, bits: BITS) -> int:
     match bits:
         case BITS.B8:
+            if data >= (1<<8):
+                error(Error.COMPILE, f"Got immediate value beyound 8 bit limit, using modulo to cut it to 8 bits | value = {data} | result = {data % (1<<8)}", flags = LogFlag.WARNING, exitAfter = False)
             return data % (1<<8)
         case BITS.B16:
+            if data >= (1<<16):
+                error(Error.COMPILE, f"Got immediate value beyound 16 bit limit, using modulo to cut it to 16 bits | value = {data} | result = {data % (1<<16)}", flags = LogFlag.WARNING, exitAfter = False)
             return data % (1<<16)
         case BITS.B32:
+            if data >= (1<<32):
+                error(Error.COMPILE, f"Got immediate value beyound 32 bit limit, using modulo to cut it to 32 bits | value = {data} | result = {data % (1<<32)}", flags = LogFlag.WARNING, exitAfter = False)
             return data % (1<<32)
         case BITS.B64:
+            if data >= (1<<64):
+                error(Error.COMPILE, f"Got immediate value beyound 64 bit limit, using modulo to cut it to 64 bits | value = {data} | result = {data % (1<<64)}", flags = LogFlag.WARNING, exitAfter = False)
             return data % (1<<64)
         case _:
             return data
 
 class GENASMF(IntFlag):
-    FV  = auto()    # Force Value
-    SV  = auto()    # Single Value
-    MB  = auto()    # Maximalize Bits
-    HV  = auto()    # High Value (register like `ah`)
-    BG  = auto()    # Begin operation (xor last values) 
-    PD  = auto()    # Preserve dx  
+    FV  = auto()    # Force Value # Is it needed???
+    SV  = auto()    # Single Value operation
+    FH  = auto()    # Force High register in 8 bit mode
+    B8  = auto()    # Force 8Bits
+    B16 = auto()    # Force 16Bits 
+    PD  = auto()    # Preserve Dx  
+    CD  = auto()    # Clear Destination (xor or mov 0)
+
+dosDTS: dict[DT, BITS] = {
+    DT.UINT8:       BITS.B8,
+    DT.UINT8MEM:    BITS.B16,
+    DT.UINT16:      BITS.B16,
+    DT.UINT16MEM:   BITS.B16,
+    DT.IMMEDIATE:   BITS.B16,
+    DT.REGISTER:    BITS.B16,
+    DT.REGISTERMEM: BITS.B16,
+}
+@dataclass
+class asmData:
+    data: str | int
+    datatype: DT
+    bits: BITS
+
+def genAsm(op: str, regs: tuple[bool,bool,bool,bool,bool,bool,bool,bool], dest: asmData | None, src: asmData, flags: GENASMF = GENASMF(0)) -> tuple[tuple[bool,bool,bool,bool,bool,bool,bool,bool], str]:
+    ret: str = ""
+    if GENASMF.SV in flags:
+        if GENASMF.B8 in flags:
+            if GENASMF.PD in flags or True: # Currently unused flag (have to think about it more)
+                match src.datatype:
+                    case DT.UINT8 | DT.UINT16:
+                        ret += f"\t{op} byte [{src.data}]\n"
+                    case DT.UINT8MEM | DT.UINT16MEM:
+                        ret += f"\tmov {b16tuple[7]}, offset {src.data}\n"
+                        ret += f"\t{op} byte [{b16tuple[7]}]\n"
+                        regs[7] = True
+                    case DT.IMMEDIATE:
+                        ret += f"\t{op} byte {cutNumToBit(src.data, BITS.B8)}\n"
+                    case DT.REGISTER:
+                        ret += f"\t{op} {b8tupleh[src.data] if GENASMF.FH in flags else b8tuplel[src.data]}\n"
+                    case DT.REGISTERMEM:
+                        if not src.data == 7:
+                            #error(Error.COMPILE, f"Writing `si` register into `si` register", flags = LogFlag.WARNING)
+                            ret += f"\tmov {b16tuple[7]}, {b16tuple[src.data]}\n"
+                        ret += f"\t{op} byte [{b16tuple[7]}]\n"
+                        regs[7] = True
+                    case _:
+                        error(Error.COMPILE, f"Unknown datatype for generating assembly", flags = LogFlag.FAIL)
+        elif GENASMF.B16 in flags:
+            if GENASMF.PD in flags or True: # Currently unused flag (have to think about it more)
+                match src.datatype:
+                    case DT.UINT8 | DT.UINT16:
+                        ret += f"\t{op} word [{src.data}]\n"
+                    case DT.UINT8MEM | DT.UINT16MEM:
+                        ret += f"\tmov {b16tuple[7]}, offset {src.data}\n"
+                        ret += f"\t{op} word [{b16tuple[7]}]\n"
+                        regs[7] = True
+                    case DT.IMMEDIATE:
+                        ret += f"\t{op} word {cutNumToBit(src.data, BITS.B16)}\n"
+                    case DT.REGISTER:
+                        ret += f"\t{op} {b16tuple[src.data]}\n"
+                    case DT.REGISTERMEM:
+                        if not src.data == 7:
+                            #error(Error.COMPILE, f"Writing `si` register into `si` register", flags = LogFlag.WARNING)
+                            ret += f"\tmov {b16tuple[7]}, {b16tuple[src.data]}\n"
+                        ret += f"\t{op} word [{b16tuple[7]}]\n"
+                        regs[7] = True
+        else:
+            if GENASMF.PD in flags or True: # Currently unused flag (have to think about it more)
+                match src.datatype:
+                    case DT.UINT8 | DT.UINT8MEM | DT.UINT16 | DT.UINT16MEM:
+                        ret += f"\t{op} [{src.data}]\n"
+                    case DT.IMMEDIATE:
+                        ret += f"\t{op} {src.data}\n"
+                    case DT.REGISTER:
+                        ret += f"\t{op} {b16tuple[src.data]}\n"
+                    case DT.REGISTERMEM:
+                        if not src.data == 7:
+                            #error(Error.COMPILE, f"Writing `si` register into `si` register", flags = LogFlag.WARNING)
+                            ret += f"\tmov {b16tuple[7]}, {b16tuple[src.data]}\n"
+                        ret += f"\t{op} [{b16tuple[7]}]\n"
+                        regs[7] = True
+    else:
+        if dest.datatype == DT.IMMEDIATE:
+            error(Error.COMPILE, f"Immediate value as destination! | dest = {dest} | src = {src}", flags = LogFlag.FAIL)
+        if GENASMF.CD in flags:
+            match dest.datatype:
+                case DT.UINT8 | DT.UINT8MEM | DT.UINT16 | DT.UINT16MEM:
+                    ret += f"\tmov [{dest.data}], 0\n"
+                case DT.REGISTER:
+                    ret += f"\txor {b16tuple[dest.data]}, {b16tuple[dest.data]}\n"
+                case DT.REGISTERMEM:
+                    ret += f"\tmov {b16tuple[6]}, {b16tuple[dest.data]}\n"
+                    ret += f"\tmov [{b16tuple[6]}], 0"
+        
+        # CONTINUE WORKING HERE
+
+        if GENASMF.B8 in flags:
+            if GENASMF.PD in flags or True: # Currently unused flag (have to think about it more)
+                match src.datatype:
+                    case DT.UINT8:
+                        ret += f"\t{op} byte [{src.data}]\n"
+                    case DT.UINT8MEM:
+                        ret += f"\tmov {b16tuple[7]}, offset {src.data}\n"
+                        ret += f"\t{op} byte [{b16tuple[7]}]\n"
+                        regs[7] = True
+                    case DT.UINT16:
+                        ret += f"\t{op} byte [{src.data}]\n"
+                    case DT.UINT16MEM:
+                        ret += f"\tmov {b16tuple[7]}, offset {src.data}\n"
+                        ret += f"\t{op} byte [{b16tuple[7]}]\n"
+                        regs[7] = True
+                    case DT.IMMEDIATE:
+                        ret += f"\t{op} byte {cutNumToBit(src.data, BITS.B8)}\n"
+                    case DT.REGISTER:
+                        ret += f"\t{op} {b8tupleh[src.data] if GENASMF.FH in flags else b8tuplel[src.data]}\n"
+                    case DT.REGISTERMEM:
+                        if not src.data == 7:
+                            #error(Error.COMPILE, f"Writing `si` register into `si` register", flags = LogFlag.WARNING)
+                            ret += f"\tmov {b16tuple[7]}, {b16tuple[src.data]}\n"
+                        ret += f"\t{op} byte [{b16tuple[7]}]\n"
+                        regs[7] = True
+                    case _:
+                        error(Error.COMPILE, f"Unknown datatype for generating assembly", flags = LogFlag.FAIL)
+        elif GENASMF.B16 in flags:
+            if GENASMF.PD in flags or True: # Currently unused flag (have to think about it more)
+                match src.datatype:
+                    case DT.UINT8:
+                        ret += f"\t{op} word [{src.data}]\n"
+                    case DT.UINT8MEM:
+                        ret += f"\tmov {b16tuple[7]}, offset {src.data}\n"
+                        ret += f"\t{op} word [{b16tuple[7]}]\n"
+                        regs[7] = True
+                    case DT.UINT16:
+                        ret += f"\t{op} word [{src.data}]\n"
+                    case DT.UINT16MEM:
+                        ret += f"\tmov {b16tuple[7]}, offset {src.data}\n"
+                        ret += f"\t{op} word [{b16tuple[7]}]\n"
+                        regs[7] = True
+                    case DT.IMMEDIATE:
+                        ret += f"\t{op} word {cutNumToBit(src.data, BITS.B16)}\n"
+                    case DT.REGISTER:
+                        ret += f"\t{op} {b16tuple[src.data]}\n"
+                    case DT.REGISTERMEM:
+                        if not src.data == 7:
+                            #error(Error.COMPILE, f"Writing `si` register into `si` register", flags = LogFlag.WARNING)
+                            ret += f"\tmov {b16tuple[7]}, {b16tuple[src.data]}\n"
+                        ret += f"\t{op} word [{b16tuple[7]}]\n"
+                        regs[7] = True
+        else:
+            if GENASMF.PD in flags or True: # Currently unused flag (have to think about it more)
+                match src.datatype:
+                    case DT.UINT8 | DT.UINT8MEM | DT.UINT16 | DT.UINT16MEM:
+                        ret += f"\t{op} [{src.data}]\n"
+                    case DT.IMMEDIATE:
+                        ret += f"\t{op} {src.data}\n"
+                    case DT.REGISTER:
+                        ret += f"\t{op} {b16tuple[src.data]}\n"
+                    case DT.REGISTERMEM:
+                        if not src.data == 7:
+                            #error(Error.COMPILE, f"Writing `si` register into `si` register", flags = LogFlag.WARNING)
+                            ret += f"\tmov {b16tuple[7]}, {b16tuple[src.data]}\n"
+                        ret += f"\t{op} [{b16tuple[7]}]\n"
+                        regs[7] = True
+
+            
 
 @lru_cache
 def gen_asm_debug(operation: str, regd: int, regx: tuple[bool,bool,bool,bool,bool,bool,bool,bool], data: str | int, dataType: DT, maxBit: BITS = BITS.B8, flags: GENASMF = GENASMF(0)) -> tuple[tuple[bool,bool,bool,bool,bool,bool,bool,bool], str]:
     
-    '''
-                    '''
-
     ret: str = ""
     match dataType:
         case DT.IMMEDIATE:
