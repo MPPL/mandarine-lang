@@ -2,11 +2,14 @@
 
 import sys
 import subprocess
-from enum import Enum, auto, Flag
+from enum import Enum, auto, Flag, IntFlag
+import types
 import typing
 import os
 import glob
 from dataclasses import dataclass, field
+from functools import lru_cache
+
 
 HEAP_SIZE = 64 * 1<<10
 
@@ -72,6 +75,7 @@ class OP(Enum):
     MOD         = auto()
     SHL         = auto()
     SHR         = auto()
+    PTR         = auto()
     EQUAL       = auto()
     GREATER     = auto()
     LESS        = auto()
@@ -83,11 +87,11 @@ class OP(Enum):
     CONJUMP     = auto()
     JUMP        = auto()
     LABEL       = auto()
-    COPY        = auto()
-    PRINT       = auto()
-    PRINT_NL    = auto()
-    PRINT_AND_NL= auto()
-    PRINT_CHAR  = auto()
+    COPY        = auto() # currently unsupported for a moment
+    PRINT       = auto() # currently unsupported for a moment
+    PRINT_NL    = auto() # currently unsupported for a moment
+    PRINT_AND_NL= auto() # currently unsupported for a moment
+    PRINT_CHAR  = auto() # currently unsupported for a moment
     BUF         = auto()
     MEMWRITE    = auto()
     MEMREAD     = auto()
@@ -100,6 +104,7 @@ class OP(Enum):
     COUNT       = auto()
 
 class DT(Enum):
+    IMMEDIATE   = auto()
     UINT8       = auto()
     UINT16      = auto()
     UINT8MEM    = auto()
@@ -213,7 +218,6 @@ class ComState(Flag):
     ARITHMETIC      = auto()
     VARDEF          = auto()
 
-
 def bfromNum(type: DT, value: int) -> bytearray:
 
     #if (n:=OP.COUNT.value) != (m:=33):
@@ -232,45 +236,114 @@ def bfromNum(type: DT, value: int) -> bytearray:
             return bytearray([(value // 256) % 256, value % 256])
         case _:
             return bytearray([0])
-    
-def gen_asm_debug(operation: str, register: str, data: str | int, dataType: DT | None, Com_state: ComState = ComState.NONE, ax_used: bool = False, force_value: bool = False) -> tuple[bool, str]:
-    
-    #if Com_state == ComState.CONDITION:
-        #force_value = True
 
+#regTuple: types.GenericAlias = types.GenericAlias(tuple, (bool,bool,bool,bool,bool,bool,bool,bool))
+
+class BITS(Enum):
+    B8  = auto()
+    B16 = auto()
+    B32 = auto()
+    B64 = auto()
+
+@lru_cache
+def regContruct(index: int, bits: BITS, source: bool = True, high: bool = False) -> tuple[BITS, str]:
+
+    b8tuplel = ('al', 'bl', 'cl', 'dl', 'bp', 'sp', 'di', 'si')
+    b8tupleh = ('ah', 'bh', 'ch', 'dh', 'bp', 'sp', 'di', 'si')
+    b16tuple = ('ax', 'bx', 'cx', 'dx', 'bp', 'sp', 'di', 'si')
+    b32tuple = ('eax', 'ebx', 'ecx', 'edx', 'ebp', 'esp', 'edi', 'esi')
+    b64tuple = ('rax', 'rbx', 'rcx', 'rdx', 'rbp', 'rsp', 'rdi', 'rsi')
+
+    match bits:
+        case BITS.B8:
+            if not source:
+                if high:
+                    return (bits, b8tupleh[index])
+                return (bits, b8tuplel[index])
+            if index >= 4:
+                return (BITS.B16, "BYTE PTR " + b16tuple[index])
+            if high:
+                return (bits, b8tupleh[index])
+            return (bits, b8tuplel[index])
+        case BITS.B16:
+            if not source:
+                return (bits, b16tuple[index])
+            if index >= 4:
+                return "WORD PTR " + (bits, b16tuple[index])
+            return (bits, b16tuple[index])
+        case BITS.B32:
+            if not source:
+                return (bits, b32tuple[index])
+            if index >= 4:
+                return "DWORD PTR " + (bits, b32tuple[index])
+            return (bits, b32tuple[index])
+        case BITS.B64:
+            if not source:
+                return (bits, b64tuple[index])
+            if index >= 4:
+                return "QWORD PTR " + (bits, b64tuple[index])
+            return (bits, b64tuple[index])
+        case _:
+            error(Error.COMPILE, f"unimplemented number of bits!{OKAY_} data passed > index: {OK_}{index}{OKAY_} | bits: {OK_}{bits}{OKAY_} | source: {OK_}{source}{OKAY_} | high: {OK_}{high}{OKAY_}")
+
+@lru_cache
+def cutNumToBit(data: int, bits: BITS) -> int:
+    match bits:
+        case BITS.B8:
+            return data % (1<<8)
+        case BITS.B16:
+            return data % (1<<16)
+        case BITS.B32:
+            return data % (1<<32)
+        case BITS.B64:
+            return data % (1<<64)
+        case _:
+            return data
+
+class GENASMF(IntFlag):
+    FV  = auto()
+    SV  = auto()
+    MB  = auto()
+
+@lru_cache
+def gen_asm_debug(operation: str, regd: int, regx: tuple[bool,bool,bool,bool,bool,bool,bool,bool], data: str | int, dataType: DT, maxBit: BITS = BITS.B8, flags: GENASMF = GENASMF(0)) -> tuple[tuple[bool,bool,bool,bool,bool,bool,bool,bool], str]:
+    
     ret: str = ""
-    if isinstance(data, int):
-        ax_used = True
-        ret = f"\t{operation} {register + 'x, ' if register else ''}{data}\n"
-    else:
-        match dataType:
-            case DT.UINT8:
-                if ax_used and register and operation == 'mov':
-                    ret = f"\txor {register}x, {register}x\n"
-                    ax_used = False
-                ret += f"\t{operation} {register + 'l, ' if register else ''}[{data}]\n"
-            case DT.UINT16:
-                ax_used = True
-                ret = f"\t{operation} {register + 'x, ' if register else ''}[{data}]\n"
-            case DT.UINT8MEM:
-                if force_value:
-                    (ax_used, ret) = gen_asm_debug(operation, register, data, DT.UINT8, ax_used)
+    match dataType:
+        case DT.IMMEDIATE:
+            if flags & GENASMF.MB:
+                regCon = regContruct(regd, maxBit, source = False)
+                ret = f"\t{operation} {'' if flags & GENASMF.SV else f'{regCon}, '}{cutNumToBit(data, maxBit)}\n"
+                regx
+
+            if regx[regd]:
+                ret = f"\t{operation} {register + 'x, ' if register else ''}{data}\n"
+        case DT.UINT8:
+            if regx and regx[0] and operation == 'mov':
+                ret = f"\txor {register}x, {register}x\n"
+            ret += f"\t{operation} {register + 'l, ' if register else ''}[{data}]\n"
+        case DT.UINT16:
+            regx = True
+            ret = f"\t{operation} {register + 'x, ' if register else ''}[{data}]\n"
+        case DT.UINT8MEM:
+            if force_value:
+                (regx, ret) = gen_asm_debug(operation, register, data, DT.UINT8, regx)
+            else:
+                if operation == 'mov':
+                    ret += f"\t'lea' {register + 'x,' if register else ''} {data}\n"
                 else:
-                    if ax_used and register and operation == 'mov':
-                        ret = f"\txor {register}x, {register}x\n"
-                        ax_used = False
                     ret += f"\t{operation} {register + 'x, ' if register else ''}offset {data}\n"
-            case DT.UINT16MEM:
-                if force_value:
-                    (ax_used, ret) = gen_asm_debug(operation, register, data, DT.UINT16, ax_used)
-                else:
-                    ax_used = True
-                    ret = f"\t{operation} {register + 'x, ' if register else ''}offset {data}\n"
-            case _:
-                print(dataType)
-                error(Error.COMPILE, f"Unknown type, {dataType.name}")
-    #print((ax_used, ret))
-    return (ax_used, ret)
+        case DT.UINT16MEM:
+            if force_value:
+                (regx, ret) = gen_asm_debug(operation, register, data, DT.UINT16, regx)
+            else:
+                regx = True
+                ret = f"\t{operation} {register + 'x, ' if register else ''}offset {data}\n"
+        case _:
+            print(dataType)
+            error(Error.COMPILE, f"Unknown type, {dataType.name}")
+    #print((regx, ret))
+    return (regx, ret)
 
 def compile_data(data: list[dict]) -> None:
 
@@ -279,7 +352,7 @@ def compile_data(data: list[dict]) -> None:
     
     heap = bytearray(HEAP_SIZE)
     heap_end = 0
-    stack = []
+    stack: list[tuple[typing.Any, DT]] = []
     ip = 0
     state: ComState = ComState.NONE
     temp1: str = ""
@@ -291,6 +364,21 @@ def compile_data(data: list[dict]) -> None:
     buffor_start: str = ""
     buffor_data: str = ""
     buffor_code: str = ""
+
+    ax: bool = True
+    bx: bool = True
+    cx: bool = True
+    dx: bool = True
+    di: bool = True
+    si: bool = True
+    bp: bool = True
+    sp: bool = True
+    
+    ar_in_ax: bool = False
+    ar_len: int = 0
+    ar_start: bool = False
+
+    ptr_lead: bool = False
 
     ax_used: bool = False
     
@@ -311,6 +399,7 @@ def compile_data(data: list[dict]) -> None:
         buffor_code = buffor_code + ".CODE\nstart:\n\tmov ax, @data\n\tmov ds, ax\n"
 
         for ip, x in enumerate(data.tokens):
+            regs = (ax, bx, cx, dx, di, si, bp, sp)
             match x.type:
                 case OP.NUM:
                     stack.append(int(x.value))
@@ -323,51 +412,71 @@ def compile_data(data: list[dict]) -> None:
                                     (string_before, string_center, string_after) = x.value.partition('\\n')
                                     x.value = f"{string_before}\", 10,\"{string_after}"
                                 buffor_data = buffor_data + f"\t{data.vars[temp1].name} db \"{x.value}$\"\n"
-                                #for y in range(len(x.value)):
-                                    #heap[heap_end+y] = ord(x.value[y])
-                                #heap[heap_end+len(x.value)] = ord('$')
-                                #data.vars[temp1].value = bytearray(bfromNum(data.vars[temp1].type, heap_end))
-                                #heap_end += len(x.value)+1
                             case DT.UINT16MEM:
                                 while (n:=x.value).find('\\n') != -1:
                                     (string_before, string_center, string_after) = x.value.partition('\\n')
                                     x.value = f"{string_before}\", 10,\"{string_after}"
                                 buffor_data = buffor_data + f"\t{data.vars[temp1].name} dw \"{x.value}$\"\n"
-                                #for y in range(len(x.value)):
-                                    #heap[heap_end+y*2] = ord(x.value[y])
-                                #heap[heap_end+len(x.value)*2] = ord('$')
-                                #data.vars[temp1].value = bytearray(bfromNum(data.vars[temp1].type, heap_end))
-                                #heap_end += (len(x.value)+1)*2
                         state = ComState.NONE
                     else:
-                        stack.append(data.vars[temp1].name)
-                        ###buffor_code += buffor_code + f"\tmov ax, {data.vars[temp1].name}"
-                        #for y in range(len(x.value)):
-                            #heap[heap_end+y] = ord(x.value[y])
-                        #heap[heap_end+len(x.value)] = ord('$')
-                        #stack.append(int.from_bytes(bfromNum(data.vars[temp1].type, heap_end)))
-                        #heap_end += len(x.value)+1
+                        stack.append((data.vars[temp1].name, data.vars[temp1].type))
+                case OP.ADD:
+
+                    # WORK HERE
+
+                    buffor_code = buffor_code + ";; -- ADD --\n"
+                    if ar_start:
+                        if isinstance((a:=stack.pop())[0], str):
+                            pass
+                    if ar_len > 1:
+                        if ax:
+                            if isinstance((a:=stack.pop())[0], str):
+                                (regs, op) = gen_asm_debug('add', a[0], a[1], ComState = state, regx = regs, force_value = not ptr_lead)
+                                if ptr_lead:
+                                    (ax, op) = gen_asm_debug('add', 'a', a[0], a[1], ComState = state, regx = ax)
+                                else:
+                                    (ax, op) = gen_asm_debug('add', 'a', a[0], a[1], ComState = state, regx = ax, force_value = True)
+                            else:
+                                (ax, op) = gen_asm_debug('add', 'a', a[0], a[1], ComState = state, regx = ax)
+                        else:
+                            if isinstance((b:=stack.pop())[0], str):
+                                if ptr_lead:
+                                    (ax, op) = gen_asm_debug('mov', 'a', b[0], b[1], ComState = state, regx = ax)
+                                else:
+                                    (ax, op) = gen_asm_debug('mov', 'a', b[0], b[1], ComState = state, regx = ax, force_value = True)
+                            else:
+                                (ax, op) = gen_asm_debug('mov', 'a', b[0], b[1], ComState = state, regx = ax)
+                            if isinstance((a:=stack.pop())[0], str):
+                                if ptr_lead:
+                                    (ax, op) = gen_asm_debug('add', 'a', a[0], a[1], ComState = state, regx = ax)
+                                else:
+                                    (ax, op) = gen_asm_debug('add', 'a', a[0], a[1], ComState = state, regx = ax, force_value = True)
+                            else:
+                                (ax, op) = gen_asm_debug('add', 'a', a[0], a[1], ComState = state, regx = ax)
+
+                    else:
+                        pass
                 case OP.ADD:
                     buffor_code = buffor_code + ";; -- ADD --\n"
                     if begin_arith:
                         a = stack.pop()
-                        (ax_used, op) = gen_asm_debug('add', 'a', a, None if isinstance(a, int) else data.vars[a].type, state, ax_used)
+                        (ax, op) = gen_asm_debug('add', 'a', a, None if isinstance(a, int) else data.vars[a].type, state, ax)
                         buffor_code = buffor_code + op
                     else:
                         begin_arith = True
                         a = stack.pop()
                         b = stack.pop()
                         if isinstance(b, int):
-                            ax_used = True
+                            ax = True
                             buffor_code = buffor_code + f"\tmov ax, {b}\n"
                         else:
-                            (ax_used, op) = gen_asm_debug('mov', 'a', b, data.vars[b].type, state, ax_used)
+                            (ax, op) = gen_asm_debug('mov', 'a', b, data.vars[b].type, state, ax)
                             buffor_code = buffor_code + op
                         if isinstance(a, int):
-                            ax_used = True
+                            ax = True
                             buffor_code = buffor_code + f"\tadd ax, {a}\n"
                         else:
-                            (ax_used, op) = gen_asm_debug('add', 'a', a, data.vars[a].type, state, ax_used, force_value=True)
+                            (ax, op) = gen_asm_debug('add', 'a', a, data.vars[a].type, state, ax, force_value=True)
                             buffor_code = buffor_code + op
                         #buffor_code = buffor_code + f"\tadd ax, {a if isinstance(a, int) else f'[{a}]'}\n"
                 case OP.SUB:
@@ -864,8 +973,8 @@ def compile_data(data: list[dict]) -> None:
                         #data.vars[temp1].value = bytearray(bfromNum(data.vars[temp1].type, stack[-1]))
                     state = ComState.NONE
                     begin_arith = False
-            #print(stack, x)
-            #input()
+            print(stack, x)
+            input()
         buffor_code = buffor_code + "\tmov ah, 4Ch\n\tint 21h\nEND start"
         #print(buffor_start, buffor_data, buffor_code)
         return buffor_start + buffor_data + buffor_code
@@ -1184,6 +1293,7 @@ indifferent_token: dict[str, TOKENS] = {
     "/"     : TOKENS.OPERAND,
     "%"     : TOKENS.OPERAND,
     "*"     : TOKENS.OPERAND,
+    "&"     : TOKENS.WORD,
     "{"     : TOKENS.CODEOPEN,
     "("     : TOKENS.CODEOPEN,
     "}"     : TOKENS.CODECLOSE,
@@ -1218,6 +1328,7 @@ operand_map: dict[str, OP] = {
     "/"     : OP.DIV,
     "%"     : OP.MOD,
     "*"     : OP.MUL,
+    "&"     : OP.PTR,
     ";"     : OP.COLON,
 }
 
@@ -1347,7 +1458,7 @@ def Parse_condition_block(data: codeBlock, typeof: OP) -> list[OpType]:
                     error(Error.PARSE, "multiple conditions in condition codeBlock are not supported yet", flags = LogFlag.FAIL)
                 condition = data.tokens[index]
                 left_or_right = False
-            case OP.MEMREAD:
+            case OP.MEMREAD | OP.PTR:
                 if left_or_right:
                     left.append(data.tokens[index])
                     #l_count += 1
@@ -1504,7 +1615,15 @@ def Secound_token_parse(data: codeBlock, index_offset: int = 0) -> codeBlock:
             case OP.VAR:
                 if (n:=data.tokens[index].value) not in data.vars.keys():
                     error(Error.PARSE, f"Variable `{BOLD_}{n}{BACK_}` stated without assigment!", flags = LogFlag.FAIL)
-
+            case OP.PTR:
+                if index+1 >= len(data.tokens):
+                    error(Error.PARSE, f"ptr token found at the end of file", flags = LogFlag.FAIL)
+                elif data[index+1].type != OP.VAR:
+                    error(Error.PARSE, f"ptr used without var afterwards", flags = LogFlag.FAIL)
+                elif index+2 >= len(data.tokens) and data[index+2].type == OP.SET:
+                    error(Error.PARSE, f"ptr used in declaration", flags = LogFlag.FAIL)
+                else:
+                    pass
             case CB.CODE | CB.CONDITION | CB.RESOLVE:
                 data.tokens[index].vars = data.vars.copy()
                 data.tokens[index] = Secound_token_parse(data.tokens[index], index_offset)
