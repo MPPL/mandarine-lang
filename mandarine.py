@@ -2,7 +2,7 @@
 
 import sys
 import subprocess
-from enum import Enum, auto, Flag, IntFlag
+from enum import Enum, IntEnum, auto, Flag, IntFlag
 import types
 import typing
 import os
@@ -239,11 +239,12 @@ def bfromNum(type: DT, value: int) -> bytearray:
 
 #regTuple: types.GenericAlias = types.GenericAlias(tuple, (bool,bool,bool,bool,bool,bool,bool,bool))
 
-class BITS(Enum):
-    B8  = auto()
-    B16 = auto()
-    B32 = auto()
-    B64 = auto()
+class BITS(IntEnum):
+    B8  = 8
+    B16 = 16
+    B32 = 32
+    B64 = 64
+    MAX = (1<<64)-1
 
 @lru_cache
 def regContruct(index: int, bits: BITS, source: bool = True, high: bool = False) -> tuple[BITS, str]:
@@ -287,6 +288,19 @@ def regContruct(index: int, bits: BITS, source: bool = True, high: bool = False)
             error(Error.COMPILE, f"unimplemented number of bits!{OKAY_} data passed > index: {OK_}{index}{OKAY_} | bits: {OK_}{bits}{OKAY_} | source: {OK_}{source}{OKAY_} | high: {OK_}{high}{OKAY_}")
 
 @lru_cache
+def bitRange(data: int) -> BITS:
+    if data < 1<<BITS.B8.value:
+        return BITS.B8
+    elif data < 1<<BITS.B16.value:
+        return BITS.B16
+    elif data < 1<<BITS.B32.value:
+        return BITS.B32
+    elif data < 1<<BITS.B64.value:
+        return BITS.B64
+    else:
+        return BITS.MAX
+
+@lru_cache
 def cutNumToBit(data: int, bits: BITS) -> int:
     match bits:
         case BITS.B8:
@@ -301,27 +315,77 @@ def cutNumToBit(data: int, bits: BITS) -> int:
             return data
 
 class GENASMF(IntFlag):
-    FV  = auto()
-    SV  = auto()
-    MB  = auto()
+    FV  = auto()    # Force Value
+    SV  = auto()    # Single Value
+    MB  = auto()    # Maximalize Bits
+    HV  = auto()    # High Value (register like `ah`)
+    BG  = auto()    # Begin operation (xor last values) 
+    PD  = auto()    # Preserve dx  
 
 @lru_cache
 def gen_asm_debug(operation: str, regd: int, regx: tuple[bool,bool,bool,bool,bool,bool,bool,bool], data: str | int, dataType: DT, maxBit: BITS = BITS.B8, flags: GENASMF = GENASMF(0)) -> tuple[tuple[bool,bool,bool,bool,bool,bool,bool,bool], str]:
     
+    '''
+                    '''
+
     ret: str = ""
     match dataType:
         case DT.IMMEDIATE:
-            if flags & GENASMF.MB:
-                regCon = regContruct(regd, maxBit, source = False)
-                ret = f"\t{operation} {'' if flags & GENASMF.SV else f'{regCon}, '}{cutNumToBit(data, maxBit)}\n"
-                regx
-
-            if regx[regd]:
-                ret = f"\t{operation} {register + 'x, ' if register else ''}{data}\n"
+            if GENASMF.MB in flags:
+                if regx[regd] and maxBit == BITS.B8 and regd < 4 and operation == 'mov':
+                    regCon = regContruct(regd, BITS.B8, source = False, high = GENASMF.HV not in flags)
+                    ret += f"\txor {regCon[1]}, {regCon[1]}\n"
+                regCon = regContruct(regd, maxBit, source = False, high = GENASMF.HV in flags)
+                ret = f"\t{operation} {'' if GENASMF.SV in flags else f'{regCon[1]}, '}{cutNumToBit(data, maxBit)}\n"
+                if maxBit > 8:
+                    regx[regd] = GENASMF.SV not in flags
+            elif regx[regd]:
+                regCon = regContruct(regd, min(BITS.B16, bitRange(data)), source = False)
+                regx[regd] = regCon[0] == BITS.B8 and GENASMF.SV not in flags
+                ret = f"\t{operation} {'' if GENASMF.SV in flags else f'{regCon[1]}, '}{cutNumToBit(data, BITS.B16)}\n"
+            else:
+                regCon = regContruct(regd, min(BITS.B16, bitRange(data)), source = False)
+                regx[regd] = regCon[0].value > 8
+                ret = f"\t{operation} {'' if GENASMF.SV in flags else f'{regCon[1]}, '}{cutNumToBit(data, BITS.B16)}\n"
         case DT.UINT8:
-            if regx and regx[0] and operation == 'mov':
-                ret = f"\txor {register}x, {register}x\n"
-            ret += f"\t{operation} {register + 'l, ' if register else ''}[{data}]\n"
+            if GENASMF.MB in flags:
+                if regx[regd] and maxBit == BITS.B8 and regd < 4 and operation == 'mov':
+                    regCon = regContruct(regd, BITS.B8, source = False, high = GENASMF.HV not in flags)
+                    ret += f"\txor {regCon[1]}, {regCon[1]}\n"
+                if maxBit == BITS.B8:
+                    regCon = regContruct(regd, maxBit, source = False, high = GENASMF.HV in flags)
+                    ret = f"\t{operation} {'' if GENASMF.SV in flags else f'{regCon[1]}, '} [{data}]\n"
+                elif regd != 3:
+                    if GENASMF.PD in flags:
+                        ret += f"\tpush dx\n"
+                    regCon = regContruct(3, BITS.B16, source = False)
+                    if GENASMF.PD not in flags and regx[3]:
+                        regx[3] = False
+                        ret += f"\txor {regCon[1]}, {regCon[1]}\n"
+                    regCon = regContruct(3, BITS.B8, source = False)
+                    ret += f"\tmov {regCon[1]}, [{data}]\n"
+                    regCon = regContruct(regd, maxBit, source = False)
+                    if GENASMF.SV in flags:
+                        regCon[1] = ''
+                    else:
+                        regCon[1] += ', '
+                        regx[regd] = regx[regd] or regCon[0].value > 8
+                    regCon2 = regContruct(3, maxBit, source = False)
+                    ret += f"\t{operation} {regCon[1]}{regCon2[1]}\n"
+                    if GENASMF.PD in flags:
+                        ret+= f"\tpop dx\n"
+                else: 
+                    error(Error.COMPILE, "trying to write to bypass dx with dx as destination!", flags = LogFlag.FAIL)
+                if maxBit > 8:
+                    regx[regd] = GENASMF.SV not in flags
+            elif regx[regd]:
+                regCon = regContruct(regd, min(BITS.B16, bitRange(data)), source = False)
+                regx[regd] = regCon[0] == BITS.B8 and GENASMF.SV not in flags
+                ret = f"\t{operation} {'' if GENASMF.SV in flags else f'{regCon[1]}, '}{cutNumToBit(data, BITS.B16)}\n"
+            else:
+                regCon = regContruct(regd, min(BITS.B16, bitRange(data)), source = False)
+                regx[regd] = regCon[0].value > 8
+                ret = f"\t{operation} {'' if GENASMF.SV in flags else f'{regCon[1]}, '}{cutNumToBit(data, BITS.B16)}\n"
         case DT.UINT16:
             regx = True
             ret = f"\t{operation} {register + 'x, ' if register else ''}[{data}]\n"
