@@ -3,128 +3,126 @@
 .DATA
 	vtest db "Test String", 10,"$"
 	vinput db 255,256 dup (0)
-	vbin db 16,17 dup (0)
+	vbin db 255,256 dup (0)
 	vdec db 16,17 dup (0)
 	vhex db 16,17 dup (0)
 	voct db 16,17 dup (0)
 	vi db ?
 	vj db ?
-	vtmp1 db ?
-	vtmp2 db ?
+	vtmp1 dw ?
+	vtmp2 dw ?
 	vtmp3 db ?
 .CODE
 start:
 	mov ax, @data
 	mov ds, ax
-	mov ah, 10
+;; -- DOS -- 10 --
 	mov dx, offset vinput
+	mov ah, 10
 	int 21h
-	mov [vi], 0
-	mov [vj], 0
-	mov [vtmp1], 0
-	mov [vtmp2], 0
-	mov [vtmp3], 0
-label54:
-;; -- WHILE --
-	xor bx, bx
-	mov bl, [vi]
 ;; -- ADD --
-	xor ax, ax
-	mov ax, offset vinput
 	add ax, 1
 ;; -- MEMREAD --
-	mov si, ax
-	xor ax, ax
-	mov al, [si]
-	cmp ax, bx
-	jg bar61
-	jmp label142
-bar61:
+	mov byte [vi], al
+	mov byte [vj], 0
+	mov word [vtmp1], 0
+;; -- ADD --
+	add ax, 1
+;; -- MEMREAD --
+;; -- MUL --
+	mov dx, 3
+	mul dx
+;; -- ADD --
+	add ax, 1
+;; -- ADD --
+	add ax, offset vbin
+	mov word [vtmp2], ax
+	mov byte [vtmp3], 0
+label66:
+;; -- WHILE --
+	xor bx, bx
+	mov bl, byte [vi]
+	mov ax, 0
+	cmp bx, ax
+	jg bar70
+	jmp label147
+bar70:
+;; -- DOS -- 9 --
 	mov dx, offset vtest
-	xor ax, ax
 	mov ah, 9
 	int 21h
+;; -- SUB --
+	sub ax, 1
 ;; -- ADD --
-	mov ax, 2
-	add al, [vi]
-;; -- ADD --
-	add ax, offset vinput
-;; -- MEMREAD --
-	mov si, ax
 	xor ax, ax
-	mov al, [si]
+	add al, byte [vi]
+;; -- ADD --
+	add ax, 2
+;; -- MEMREAD --
 ;; -- SUB --
 	sub ax, 48
-	mov [vtmp1], al
-	mov [vj], 0
-;; -- ADD --
-	xor ax, ax
-	mov ax, offset vbin
-	add ax, 1
-	mov [vtmp2], al
-label88:
+	mov word [vtmp1], ax
+	mov byte [vj], 3
+label93:
 ;; -- WHILE --
 	xor bx, bx
-	mov bl, [vj]
-	mov ax, 3
-	cmp ax, bx
-	jg bar92
-	jmp label128
-bar92:
-;; -- ADD --
-	xor ax, ax
-	mov al, [vtmp2]
-	add ax, 1
-	mov [vtmp2], al
+	mov bl, byte [vj]
+	mov ax, 0
+	cmp bx, ax
+	jg bar97
+	jmp label133
+bar97:
+;; -- SUB --
+	sub ax, 1
+	mov di, offset vtmp2
+	mov si, offset vtmp2
+	mov word [di], si
 ;; -- MOD --
-	xor ax, ax
-	mov al, [vtmp1]
-	mov cx, 2
-	div cl
+	mov dl, 2
+	div dl
 	mov al, ah
 	xor ah, ah
 ;; -- ADD --
-	add ax, 48
-	mov [vtmp3], al
+	add ax, vtmp1
+	mov byte [vtmp3], 48
 ;; -- MEMWRITE --
-	mov bl, [vtmp3]
-	mov si, WORD PTR [vtmp2]
-	mov BYTE PTR [si], bl
 ;; -- DIV --
-	xor ax, ax
-	mov al, [vtmp1]
-	mov cx, 2
-	div cl
+	mov dl, 2
+	div dl
 	xor ah, ah
-	mov [vtmp1], al
+	mov di, offset vtmp1
+	mov si, offset vtmp1
+	mov word [di], si
+;; -- SUB --
+	sub ax, 1
+	mov di, offset vj
+	mov si, offset vj
+	movsb
+	jmp label93
+label133:
+;; -- SUB --
+	sub ax, 1
+	mov di, offset vi
+	mov si, offset vi
+	movsb
+	jmp label66
+label147:
 ;; -- ADD --
-	xor ax, ax
-	mov al, [vj]
 	add ax, 1
-	mov [vj], al
-	jmp label88
-label128:
+;; -- MEMREAD --
+;; -- MUL --
+	mov dx, 3
+	mul dx
 ;; -- ADD --
-	xor ax, ax
-	mov al, [vi]
 	add ax, 1
-	mov [vi], al
-	jmp label54
-label142:
 ;; -- ADD --
-	xor ax, ax
-	mov al, [vtmp2]
-	add ax, 1
-	mov [vtmp2], al
+	add ax, offset vbin
+	mov word [vtmp2], ax
 ;; -- MEMWRITE --
-	mov si, WORD PTR [vtmp2]
-	mov BYTE PTR [si], 36
 ;; -- ADD --
-	xor ax, ax
-	mov ax, offset vbin
-	add ax, 2
-	mov dx, ax
-	xor ax, ax
+	add ax, 1
+;; -- DOS -- 9 --
+	mov dx, offset vbin
 	mov ah, 9
 	int 21h
 	mov ah, 4Ch

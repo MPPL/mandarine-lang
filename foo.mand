@@ -18,7 +18,7 @@ u8 tmp3 = 0;
 \\ input -> bin
 
 while(i > 0){
-    \\test 9 dos ;
+    test 9 dos ;
     tmp1 = input 2 i 1 -++ ,mem 48-;
     j = 3;
     while(j > 0){

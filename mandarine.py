@@ -170,8 +170,8 @@ class LogFlag(Flag):
     GOOD        = auto()
     EXPECTED    = auto()
 
-b8tuplel = ('al', 'bl', 'cl', 'dl', 'bpl', 'spl', 'dil', 'sil')
-b8tupleh = ('ah', 'bh', 'ch', 'dh', 'bpl', 'spl', 'dil', 'sil')
+b8tuplel = ('al', 'bl', 'cl', 'dl', 'bpl', 'spl', 'di', 'si')
+b8tupleh = ('ah', 'bh', 'ch', 'dh', 'bpl', 'spl', 'di', 'si')
 b16tuple = ('ax', 'bx', 'cx', 'dx', 'bp', 'sp', 'di', 'si')
 b32tuple = ('eax', 'ebx', 'ecx', 'edx', 'ebp', 'esp', 'edi', 'esi')
 b64tuple = ('rax', 'rbx', 'rcx', 'rdx', 'rbp', 'rsp', 'rdi', 'rsi')
@@ -361,7 +361,8 @@ def genAsm(op: str, regs: tuple[bool,bool,bool,bool,bool,bool,bool,bool], dest: 
                         ret += f"\t{op} byte [{b16tuple[7]}]\n"
                         regs[7] = True
                     case DT.IMMEDIATE:
-                        ret += f"\t{op} byte {cutNumToBit(src.data, BITS.B8)}\n"
+                        ret += f"\tmov {b8tuplel[3]}, {cutNumToBit(src.data, BITS.B8)}\n"
+                        ret += f"\t{op} {b8tuplel[3]}\n"
                     case DT.REGISTER:
                         ret += f"\t{op} {b8tupleh[src.data] if GENASMF.FH in flags else b8tuplel[src.data]}\n"
                     case DT.REGISTERMEM:
@@ -382,7 +383,9 @@ def genAsm(op: str, regs: tuple[bool,bool,bool,bool,bool,bool,bool,bool], dest: 
                         ret += f"\t{op} word [{b16tuple[7]}]\n"
                         regs[7] = True
                     case DT.IMMEDIATE:
-                        ret += f"\t{op} word {cutNumToBit(src.data, BITS.B16)}\n"
+                        ret += f"\tmov {b16tuple[3]}, {cutNumToBit(src.data, BITS.B16)}\n"
+                        ret += f"\t{op} word {b16tuple[3]}\n"
+                        regs = regs[:3] + (True,) + regs[4:]
                     case DT.REGISTER:
                         ret += f"\t{op} {b16tuple[src.data]}\n"
                     case DT.REGISTERMEM:
@@ -397,7 +400,9 @@ def genAsm(op: str, regs: tuple[bool,bool,bool,bool,bool,bool,bool,bool], dest: 
                     case DT.UINT8 | DT.UINT8MEM | DT.UINT16 | DT.UINT16MEM:
                         ret += f"\t{op} [{src.data}]\n"
                     case DT.IMMEDIATE:
-                        ret += f"\t{op} {src.data}\n"
+                        ret += f"\tmov {b16tuple[3]}, {src.data}\n"
+                        ret += f"\t{op} {b16tuple[3]}\n"
+                        regs = regs[:3] + (True,) + regs[4:]
                     case DT.REGISTER:
                         ret += f"\t{op} {b16tuple[src.data]}\n"
                     case DT.REGISTERMEM:
@@ -418,8 +423,6 @@ def genAsm(op: str, regs: tuple[bool,bool,bool,bool,bool,bool,bool,bool], dest: 
                 case DT.REGISTERMEM:
                     ret += f"\tmov {b16tuple[6]}, {b16tuple[dest.data]}\n"
                     ret += f"\tmov [{b16tuple[6]}], 0"
-        
-        # CONTINUE WORKING HERE
 
         if GENASMF.B8 in flags:
             if GENASMF.PD in flags or True: # Currently unused flag (have to think about it more)
@@ -448,7 +451,7 @@ def genAsm(op: str, regs: tuple[bool,bool,bool,bool,bool,bool,bool,bool], dest: 
                                 ret += f"\t{op} byte [{b16tuple[6]}], {cutNumToBit(src.data, BITS.B8)}\n"
                             case DT.REGISTER:
                                 ret += f"\t{op} {b8tupleh[dest.data] if GENASMF.FH in flags else b8tuplel[dest.data]}, {cutNumToBit(src.data, BITS.B8)}\n"
-                                regs[dest.data] = GENASMF.FH in flags
+                                regs = regs[:dest.data] + (GENASMF.FH in flags,) + regs[dest.data+1:]
                             case DT.REGISTERMEM:
                                 if dest.data != 6:
                                     ret += f"\tmov {b16tuple[6]}, {b16tuple[dest.data]}\n"
@@ -506,7 +509,7 @@ def genAsm(op: str, regs: tuple[bool,bool,bool,bool,bool,bool,bool,bool], dest: 
                                     ret += f"\t{op} word [{b16tuple[6]}], byte [{b16tuple[7]}]\n"
                             case DT.REGISTER:
                                 ret += f"\t{op} {b16tuple[dest.data]}, byte [{src.data}]\n"
-                                regs[dest.data] = True
+                                regs = regs[:dest.data] + (True,) + regs[dest.data+1:]
                             case DT.REGISTERMEM:
                                 if dest.data != 6:
                                     ret += f"\tmov {b16tuple[6]}, {b16tuple[dest.data]}\n"
@@ -530,7 +533,7 @@ def genAsm(op: str, regs: tuple[bool,bool,bool,bool,bool,bool,bool,bool], dest: 
                                     ret += f"\t{op} word [{b16tuple[6]}], word [{b16tuple[7]}]\n"
                             case DT.REGISTER:
                                 ret += f"\t{op} {b16tuple[dest.data]}, word [{src.data}]\n"
-                                regs[dest.data] = True
+                                regs = regs[:dest.data] + (True,) + regs[dest.data+1:]
                             case DT.REGISTERMEM:
                                 if dest.data != 6:
                                     ret += f"\tmov {b16tuple[6]}, {b16tuple[dest.data]}\n"
@@ -544,7 +547,7 @@ def genAsm(op: str, regs: tuple[bool,bool,bool,bool,bool,bool,bool,bool], dest: 
                                     ret += f"\t{op} word [{dest.data}], {cutNumToBit(src.data, BITS.B16)}\n"
                             case DT.REGISTER:
                                 ret += f"\t{op} {b16tuple[dest.data]}, {cutNumToBit(src.data, BITS.B16)}\n"
-                                regs[dest.data] = True
+                                regs = regs[:dest.data] + (True,) + regs[dest.data+1:]
                             case DT.REGISTERMEM:
                                 if dest.data != 6:
                                     ret += f"\tmov {b16tuple[6]}, {b16tuple[dest.data]}\n"
@@ -557,7 +560,7 @@ def genAsm(op: str, regs: tuple[bool,bool,bool,bool,bool,bool,bool,bool], dest: 
                                     ret += f"\t{op} word [{dest.data}], {b16tuple[src.data]}\n"
                             case DT.REGISTER:
                                 ret += f"\t{op} {b16tuple[dest.data]}, {b16tuple[src.data]}\n"
-                                regs[dest.data] = True
+                                regs = regs[:dest.data] + (True,) + regs[dest.data+1:]
                             case DT.REGISTERMEM:
                                 if dest.data != 6:
                                     ret += f"\tmov {b16tuple[6]}, {b16tuple[dest.data]}\n"
@@ -581,7 +584,7 @@ def genAsm(op: str, regs: tuple[bool,bool,bool,bool,bool,bool,bool,bool], dest: 
                             case DT.REGISTER:
                                 ret += f"\t{op} {b16tuple[7]}, {b16tuple[src.data]}\n"
                                 ret += f"\t{op} {b16tuple[dest.data]}, word [{b16tuple[7]}]\n"
-                                regs[dest.data] = True
+                                regs = regs[:dest.data] + (True,) + regs[dest.data+1:]
                             case DT.REGISTERMEM:
                                 if src.data != 7:
                                     ret += f"\tmov {b16tuple[7]}, {b16tuple[src.data]}\n"
@@ -593,7 +596,7 @@ def genAsm(op: str, regs: tuple[bool,bool,bool,bool,bool,bool,bool,bool], dest: 
         else:
             if GENASMF.PD in flags or True: # Currently unused flag (have to think about it more)
                 match src.datatype:
-                    case DT.UINT8 | DT.UINT8MEM:
+                    case DT.UINT8:
                         match dest.datatype:
                             case DT.UINT8 | DT.UINT8MEM:
                                 ret += f"\t{op} {b16tuple[6]}, offset {dest.data}\n"
@@ -610,14 +613,16 @@ def genAsm(op: str, regs: tuple[bool,bool,bool,bool,bool,bool,bool,bool], dest: 
                                 else:
                                     ret += f"\t{op} word [{b16tuple[6]}], byte [{b16tuple[7]}]\n"
                             case DT.REGISTER:
-                                ret += f"\t{op} {b16tuple[dest.data]}, byte [{src.data}]\n"
-                                regs[dest.data] = True
+                                if regs[dest.data]:
+                                    ret += f"\txor {b16tuple[dest.data]}, {b16tuple[dest.data]}\n"
+                                ret += f"\t{op} {b8tuplel[dest.data]}, byte [{src.data}]\n"
+                                regs = regs[:dest.data] + (True,) + regs[dest.data+1:]
                             case DT.REGISTERMEM:
                                 if dest.data != 6:
                                     ret += f"\tmov {b16tuple[6]}, {b16tuple[dest.data]}\n"
                                 ret += f"\tmov {b16tuple[7]}, offset {src.data}\n"
-                                ret += f"\t{op} word [{b16tuple[6]}], byte [{b16tuple[7]}]\n"
-                    case DT.UINT16 | DT.UINT16MEM:
+                                ret += f"\t{op} {'word' if dest.bits > 8 else 'byte'} [{b16tuple[6]}], byte [{b16tuple[7]}]\n"
+                    case DT.UINT8MEM:
                         match dest.datatype:
                             case DT.UINT8 | DT.UINT8MEM:
                                 ret += f"\t{op} {b16tuple[6]}, offset {dest.data}\n"
@@ -629,18 +634,58 @@ def genAsm(op: str, regs: tuple[bool,bool,bool,bool,bool,bool,bool,bool], dest: 
                             case DT.UINT16 | DT.UINT16MEM:
                                 ret += f"\t{op} {b16tuple[6]}, offset {dest.data}\n"
                                 ret += f"\t{op} {b16tuple[7]}, offset {src.data}\n"
-                                if op == 'mov':
-                                    ret += "\tmovsw\n"
-                                else:
-                                    ret += f"\t{op} word [{b16tuple[6]}], word [{b16tuple[7]}]\n"
+                                ret += f"\t{op} word [{b16tuple[6]}], {b16tuple[7]}\n"
                             case DT.REGISTER:
-                                ret += f"\t{op} {b16tuple[dest.data]}, word [{src.data}]\n"
-                                regs[dest.data] = True
+                                ret += f"\t{op} {b16tuple[dest.data]}, offset {src.data}\n"
+                                regs = regs[:dest.data] + (True,) + regs[dest.data+1:]
+                                
                             case DT.REGISTERMEM:
                                 if dest.data != 6:
                                     ret += f"\tmov {b16tuple[6]}, {b16tuple[dest.data]}\n"
                                 ret += f"\tmov {b16tuple[7]}, offset {src.data}\n"
-                                ret += f"\t{op} word [{b16tuple[6]}], word [{b16tuple[7]}]\n"
+                                ret += f"\t{op} {'word' if dest.bits > 8 else 'byte'} [{b16tuple[6]}], {b16tuple[7]}\n"
+                    case DT.UINT16:
+                        match dest.datatype:
+                            case DT.UINT8 | DT.UINT8MEM:
+                                ret += f"\t{op} {b16tuple[6]}, offset {dest.data}\n"
+                                ret += f"\t{op} {b16tuple[7]}, offset {src.data}\n"
+                                if op == 'mov':
+                                    ret += "\tmovsb\n"
+                                else:
+                                    ret += f"\t{op} byte [{b16tuple[6]}], byte [{b16tuple[7]}]\n"
+                            case DT.UINT16 | DT.UINT16MEM:
+                                ret += f"\t{op} {b16tuple[6]}, offset {dest.data}\n"
+                                ret += f"\t{op} {b16tuple[7]}, offset {src.data}\n"
+                                ret += f"\t{op} word [{b16tuple[6]}], {b16tuple[7]}\n"
+                            case DT.REGISTER:
+                                ret += f"\t{op} {b16tuple[dest.data]}, {src.data}\n"
+                                regs = regs[:dest.data] + (True,) + regs[dest.data+1:]
+                            case DT.REGISTERMEM:
+                                if dest.data != 6:
+                                    ret += f"\tmov {b16tuple[6]}, {b16tuple[dest.data]}\n"
+                                ret += f"\tmov {b16tuple[7]}, offset {src.data}\n"
+                                ret += f"\t{op} {'word' if dest.bits > 8 else 'byte'} [{b16tuple[6]}], [{b16tuple[7]}]\n"
+                    case DT.UINT16MEM:
+                        match dest.datatype:
+                            case DT.UINT8 | DT.UINT8MEM:
+                                ret += f"\t{op} {b16tuple[6]}, offset {dest.data}\n"
+                                ret += f"\t{op} {b16tuple[7]}, offset {src.data}\n"
+                                if op == 'mov':
+                                    ret += "\tmovsb\n"
+                                else:
+                                    ret += f"\t{op} byte [{b16tuple[6]}], byte [{b16tuple[7]}]\n"
+                            case DT.UINT16 | DT.UINT16MEM:
+                                ret += f"\t{op} {b16tuple[6]}, offset {dest.data}\n"
+                                ret += f"\t{op} {b16tuple[7]}, offset {src.data}\n"
+                                ret += f"\t{op} word [{b16tuple[6]}], {b16tuple[7]}\n"
+                            case DT.REGISTER:
+                                ret += f"\t{op} {b16tuple[dest.data]}, {src.data}\n"
+                                regs = regs[:dest.data] + (True,) + regs[dest.data+1:]
+                            case DT.REGISTERMEM:
+                                if dest.data != 6:
+                                    ret += f"\tmov {b16tuple[6]}, {b16tuple[dest.data]}\n"
+                                ret += f"\tmov {b16tuple[7]}, offset {src.data}\n"
+                                ret += f"\t{op} {'word' if dest.bits > 8 else 'byte'} [{b16tuple[6]}], {b16tuple[7]}\n"
                     case DT.IMMEDIATE:
                         match dest.datatype:
                             case DT.UINT8 | DT.UINT8MEM:
@@ -649,24 +694,26 @@ def genAsm(op: str, regs: tuple[bool,bool,bool,bool,bool,bool,bool,bool], dest: 
                                     ret += f"\t{op} word [{dest.data}], {cutNumToBit(src.data, BITS.B16)}\n"
                             case DT.REGISTER:
                                 ret += f"\t{op} {b16tuple[dest.data]}, {cutNumToBit(src.data, BITS.B16)}\n"
-                                regs[dest.data] = True
+                                regs = regs[:dest.data] + (True,) + regs[dest.data+1:]
                             case DT.REGISTERMEM:
                                 if dest.data != 6:
                                     ret += f"\tmov {b16tuple[6]}, {b16tuple[dest.data]}\n"
-                                ret += f"\t{op} word [{b16tuple[6]}], {cutNumToBit(src.data, BITS.B16)}\n"
+                                ret += f"\t{op} {'word' if dest.bits > 8 else 'byte'} [{b16tuple[6]}], {cutNumToBit(src.data, BITS.B16 if dest.bits > 8 else BITS.B8)}\n"
                     case DT.REGISTER:
+                        srcVar = b16tuple[src.data] if src.bits == BITS.B16 else b8tupleh[src.data] if GENASMF.FH in flags else b8tuplel[src.data]
                         match dest.datatype:
                             case DT.UINT8 | DT.UINT8MEM:
-                                ret += f"\t{op} byte [{dest.data}], {b16tuple[src.data]}\n"
+                                ret += f"\t{op} byte [{dest.data}], {srcVar}\n"
                             case DT.UINT16 | DT.UINT16MEM:
-                                    ret += f"\t{op} word [{dest.data}], {b16tuple[src.data]}\n"
+                                    ret += f"\t{op} word [{dest.data}], {srcVar}\n"
                             case DT.REGISTER:
-                                ret += f"\t{op} {b16tuple[dest.data]}, {b16tuple[src.data]}\n"
-                                regs[dest.data] = True
+                                destVar = b16tuple[dest.data] if (dest.bits == BITS.B16 and src.bits == BITS.B16) else b8tupleh[dest.data] if GENASMF.FH in flags else b8tuplel[dest.data]
+                                ret += f"\t{op} {destVar}, {srcVar}\n"
+                                regs = regs[:dest.data] + (True,) + regs[dest.data+1:]
                             case DT.REGISTERMEM:
                                 if dest.data != 6:
-                                    ret += f"\tmov {b16tuple[6]}, {b16tuple[dest.data]}\n"
-                                ret += f"\t{op} word [{b16tuple[6]}], {b16tuple[src.data]}\n"
+                                    ret += f"\tmov {b16tuple[6]}, {srcVar}\n"
+                                ret += f"\t{op} {'word' if dest.bits > 8 else 'byte'} [{b16tuple[6]}], {srcVar}\n"
                     case DT.REGISTERMEM:
                         match dest.datatype:
                             case DT.UINT8 | DT.UINT8MEM:
@@ -679,39 +726,31 @@ def genAsm(op: str, regs: tuple[bool,bool,bool,bool,bool,bool,bool,bool], dest: 
                             case DT.UINT16 | DT.UINT16MEM:
                                 ret += f"\t{op} {b16tuple[6]}, offset {dest.data}\n"
                                 ret += f"\t{op} {b16tuple[7]}, {b16tuple[src.data]}\n"
-                                if op == 'mov':
-                                    ret += "\tmovsb\n"
-                                else:
-                                    ret += f"\t{op} word [{b16tuple[6]}], word [{b16tuple[7]}]\n"
+                                ret += f"\t{op} word [{b16tuple[6]}], {b16tuple[7]}\n"
                             case DT.REGISTER:
                                 ret += f"\t{op} {b16tuple[7]}, {b16tuple[src.data]}\n"
-                                ret += f"\t{op} {b16tuple[dest.data]}, word [{b16tuple[7]}]\n"
-                                regs[dest.data] = True
+                                ret += f"\t{op} {b16tuple[dest.data]}, byte [{b16tuple[7]}]\n"
+                                regs = regs[:dest.data] + (True,) + regs[dest.data+1:]
                             case DT.REGISTERMEM:
                                 if src.data != 7:
                                     ret += f"\tmov {b16tuple[7]}, {b16tuple[src.data]}\n"
                                 if dest.data != 6:
                                     ret += f"\tmov {b16tuple[6]}, {b16tuple[dest.data]}\n"
-                                ret += f"\t{op} word [{b16tuple[6]}], word [{b16tuple[7]}]\n"
+                                ret += f"\t{op} {'word' if dest.bits > 8 else 'byte'} [{b16tuple[6]}], {b16tuple[7]}\n"
                     case _:
                         error(Error.COMPILE, f"Unknown datatype for generating assembly", flags = LogFlag.FAIL)
-        return (regs, ret)
+    return (regs, ret)
 
 def compile_data(data: list[dict]) -> None:
 
-    if (n:=OP.COUNT.value) != (m:=36):
+    if (n:=OP.COUNT.value) != (m:=37):
         error(Error.ENUM, f"{BOLD_}Exhaustive operation parsing protection in {BOLD_}compile_data{BACK_}", expected = (m,n), flags = LogFlag.FAIL | LogFlag.EXPECTED)
     
-    heap = bytearray(HEAP_SIZE)
-    heap_end = 0
     stack: list[tuple[typing.Any, DT]] = []
     ip = 0
     state: ComState = ComState.NONE
     temp1: str = ""
     condition: OP
-    last_type: DT
-    debug_counter = -1
-    begin_arith: bool = False
     
     buffor_start: str = ""
     buffor_data: str = ""
@@ -726,13 +765,7 @@ def compile_data(data: list[dict]) -> None:
     bp: bool = True
     sp: bool = True
     
-    ar_in_ax: bool = False
     ar_len: int = 0
-    ar_start: bool = False
-
-    ptr_lead: bool = False
-
-    ax_used: bool = False
     
     if Com_Mode == COMMODE.LINUX:
         buffor_start = buffor_start + "format ELF64 executable 3\nsegment readable executable\n"
@@ -760,318 +793,151 @@ def compile_data(data: list[dict]) -> None:
                         
                         match data.vars[temp1].type:
                             case DT.UINT8MEM:
-                                while (n:=x.value).find('\\n') != -1:
-                                    (string_before, string_center, string_after) = x.value.partition('\\n')
+                                while (n:=x.value).find('\n') != -1:
+                                    (string_before, string_center, string_after) = x.value.partition('\n')
                                     x.value = f"{string_before}\", 10,\"{string_after}"
                                 buffor_data = buffor_data + f"\t{data.vars[temp1].name} db \"{x.value}$\"\n"
                             case DT.UINT16MEM:
-                                while (n:=x.value).find('\\n') != -1:
-                                    (string_before, string_center, string_after) = x.value.partition('\\n')
+                                while (n:=x.value).find('\n') != -1:
+                                    (string_before, string_center, string_after) = x.value.partition('\n')
                                     x.value = f"{string_before}\", 10,\"{string_after}"
                                 buffor_data = buffor_data + f"\t{data.vars[temp1].name} dw \"{x.value}$\"\n"
                         state = ComState.NONE
                     else:
                         stack.append((data.vars[temp1].name, data.vars[temp1].type))
                 case OP.ADD:
-
-                    # WORK HERE
-
                     buffor_code = buffor_code + ";; -- ADD --\n"
-                    if ar_start:
-                        if isinstance((a:=stack.pop())[0], str):
-                            pass
-                    if ar_len > 1:
-                        if ax:
-                            (regs, op) = genAsm('add', regs, asmData(0, DT.REGISTER, BITS.B16), asmData(a[0], a[1], dosDTS[a[1]]))
-                        else:
-                            (regs, op) = genAsm('mov', regs, asmData(0, DT.REGISTER, BITS.B16), asmData(a[0], a[1], dosDTS[a[1]]))
-                            if isinstance((a:=stack.pop())[0], str):
-                                if ptr_lead:
-                                    (ax, op) = gen_asm_debug('add', 'a', a[0], a[1], ComState = state, regx = ax)
-                                else:
-                                    (ax, op) = gen_asm_debug('add', 'a', a[0], a[1], ComState = state, regx = ax, force_value = True)
-                            else:
-                                (ax, op) = gen_asm_debug('add', 'a', a[0], a[1], ComState = state, regx = ax)
-
-                    else:
-                        pass
-                case OP.ADD:
-                    buffor_code = buffor_code + ";; -- ADD --\n"
-                    if begin_arith:
+                    if len(stack) > 0:
+                        if not ax:
+                            b = stack.pop()
+                            (regs, op) = genAsm('mov', regs, asmData(0, DT.REGISTER, BITS.B16), asmData(b[0], b[1], dosDTS[b[1]]))
+                            buffor_code += op
                         a = stack.pop()
-                        (ax, op) = gen_asm_debug('add', 'a', a, None if isinstance(a, int) else data.vars[a].type, state, ax)
-                        buffor_code = buffor_code + op
+                        (regs, op) = genAsm('add', regs, asmData(0, DT.REGISTER, BITS.B16), asmData(a[0], a[1], dosDTS[a[1]]))
+                        buffor_code += op
                     else:
-                        begin_arith = True
-                        a = stack.pop()
-                        b = stack.pop()
-                        if isinstance(b, int):
-                            ax = True
-                            buffor_code = buffor_code + f"\tmov ax, {b}\n"
-                        else:
-                            (ax, op) = gen_asm_debug('mov', 'a', b, data.vars[b].type, state, ax)
-                            buffor_code = buffor_code + op
-                        if isinstance(a, int):
-                            ax = True
-                            buffor_code = buffor_code + f"\tadd ax, {a}\n"
-                        else:
-                            (ax, op) = gen_asm_debug('add', 'a', a, data.vars[a].type, state, ax, force_value=True)
-                            buffor_code = buffor_code + op
-                        #buffor_code = buffor_code + f"\tadd ax, {a if isinstance(a, int) else f'[{a}]'}\n"
+                        error(Error.COMPILE, "Not enough arguments in arithmetics", flags = LogFlag.FAIL)
                 case OP.SUB:
                     buffor_code = buffor_code + ";; -- SUB --\n"
-                    if begin_arith:
+                    if len(stack) > 0:
+                        if not ax:
+                            b = stack.pop()
+                            (regs, op) = genAsm('mov', regs, asmData(0, DT.REGISTER, BITS.B16), asmData(b[0], b[1], dosDTS[b[1]]))
+                            buffor_code += op
                         a = stack.pop()
-                        (ax_used, op) = gen_asm_debug('sub', 'a', a, None if isinstance(a, int) else data.vars[a].type, state, ax_used)
-                        buffor_code = buffor_code + op
+                        (regs, op) = genAsm('sub', regs, asmData(0, DT.REGISTER, BITS.B16), asmData(a[0], a[1], dosDTS[a[1]]))
+                        buffor_code += op
+                        ar_len -= 1
                     else:
-                        begin_arith = True
-                        a = stack.pop()
-                        b = stack.pop()
-                        if isinstance(b, int):
-                            ax_used = True
-                            buffor_code = buffor_code + f"\tmov ax, {b}\n"
-                        else:
-                            (ax_used, op) = gen_asm_debug('mov', 'a', b, data.vars[b].type, state, ax_used)
-                            buffor_code = buffor_code + op
-                        if isinstance(a, int):
-                            ax_used = True
-                            buffor_code = buffor_code + f"\tsub ax, {a}\n"
-                        else:
-                            (ax_used, op) = gen_asm_debug('sub', 'a', a, data.vars[b].type, state, ax_used, force_value=True)
-                            buffor_code = buffor_code + op
-                        #buffor_code = buffor_code + f"\tsub ax, {a if isinstance(a, int) else f'[{a}]'}\n"
+                        error(Error.COMPILE, "Not enough arguments in arithmetics", flags = LogFlag.FAIL)
                 case OP.MUL:
                     buffor_code = buffor_code + ";; -- MUL --\n"
-                    if begin_arith:
+                    if len(stack) > 0:
+                        if not ax:
+                            b = stack.pop()
+                            (regs, op) = genAsm('mov', regs, asmData(0, DT.REGISTER, BITS.B16), asmData(b[0], b[1], dosDTS[b[1]]))
+                            buffor_code += op
                         a = stack.pop()
-                        (ax_used, op) = gen_asm_debug('mul', '', a, None if isinstance(a, int) else data.vars[a].type, state, ax_used)
-                        buffor_code = buffor_code + op
+                        (regs, op) = genAsm('mul', regs, asmData(0, DT.REGISTER, BITS.B16), asmData(a[0], a[1], dosDTS[a[1]]), flags = GENASMF.SV)
+                        buffor_code += op
+                        ar_len -= 1
                     else:
-                        begin_arith = True
-                        a = stack.pop()
-                        b = stack.pop()
-                        if isinstance(b, int):
-                            ax_used = True
-                            buffor_code = buffor_code + f"\tmov ax, {b}\n"
-                        else:
-                            (ax_used, op) = gen_asm_debug('mov', 'a', b, data.vars[b].type, state, ax_used)
-                            buffor_code = buffor_code + op
-                        if isinstance(a, int):
-                            ax_used = True
-                            buffor_code = buffor_code + f"\tmul {a}\n"
-                        else:
-                            (ax_used, op) = gen_asm_debug('mul', '', a, data.vars[b].type, state, ax_used, force_value=True)
-                            buffor_code = buffor_code + op
-                        #buffor_code = buffor_code + f"\tsub ax, {a if isinstance(a, int) else f'[{a}]'}\n"
+                        error(Error.COMPILE, "Not enough arguments in arithmetics", flags = LogFlag.FAIL)
                 case OP.DIV:
                     buffor_code = buffor_code + ";; -- DIV --\n"
-                    if begin_arith:
+                    if len(stack) > 0:
+                        if not ax:
+                            b = stack.pop()
+                            (regs, op) = genAsm('mov', regs, asmData(0, DT.REGISTER, BITS.B16), asmData(b[0], b[1], dosDTS[b[1]]))
+                            buffor_code += op
                         a = stack.pop()
-                        (ax_used, op) = gen_asm_debug('div', '', a, None if isinstance(a, int) else data.vars[a].type, state, ax_used)
-                        buffor_code = buffor_code + op
-                    else:
-                        begin_arith = True
-                        a = stack.pop()
-                        b = stack.pop()
-                        if isinstance(b, int):
-                            ax_used = True
-                            buffor_code = buffor_code + f"\tmov ax, {b}\n"
-                        else:
-                            (ax_used, op) = gen_asm_debug('mov', 'a', b, data.vars[b].type, state, ax_used)
-                            buffor_code = buffor_code + op
-                        if isinstance(a, int):
-                            ax_used = True
-                            buffor_code = buffor_code + f"\tmov cx, {a}\n"
-                            buffor_code = buffor_code + f"\tdiv cl\n"
-                        else:
-                            (ax_used, op) = gen_asm_debug('div BYTE', '', a, data.vars[b].type, state, ax_used, force_value=True)
-                            buffor_code = buffor_code + op
-                        #buffor_code = buffor_code + f"\tdiv BYTE {a if isinstance(a, int) else f'[{a}]'}\n"
+                        (regs, op) = genAsm('div', regs, asmData(0, DT.REGISTER, BITS.B16), asmData(a[0], a[1], dosDTS[a[1]]), flags = GENASMF.SV | GENASMF.B8)
+                        buffor_code += op
+                        ar_len -= 1
                         buffor_code = buffor_code + f"\txor ah, ah\n"
+                    else:
+                        error(Error.COMPILE, "Not enough arguments in arithmetics", flags = LogFlag.FAIL)
                 case OP.MOD:
                     buffor_code = buffor_code + ";; -- MOD --\n"
-                    if begin_arith:
+                    if len(stack) > 0:
+                        if not ax:
+                            b = stack.pop()
+                            (regs, op) = genAsm('mov', regs, asmData(0, DT.REGISTER, BITS.B16), asmData(b[0], b[1], dosDTS[b[1]]))
+                            buffor_code += op
                         a = stack.pop()
-                        (ax_used, op) = gen_asm_debug('div', '', a, None if isinstance(a, int) else data.vars[a].type, state, ax_used)
-                        buffor_code = buffor_code + op
-                    else:
-                        begin_arith = True
-                        a = stack.pop()
-                        b = stack.pop()
-                        if isinstance(b, int):
-                            ax_used = True
-                            buffor_code = buffor_code + f"\tmov ax, {b}\n"
-                        else:
-                            (ax_used, op) = gen_asm_debug('mov', 'a', b, data.vars[b].type, state, ax_used)
-                            buffor_code = buffor_code + op
-                        if isinstance(a, int):
-                            ax_used = True
-                            buffor_code = buffor_code + f"\tmov cx, {a}\n"
-                            buffor_code = buffor_code + f"\tdiv cl\n"
-                        else:
-                            (ax_used, op) = gen_asm_debug('div BYTE', '', a, data.vars[b].type, state, ax_used, force_value=True)
-                            buffor_code = buffor_code + op
-                        #buffor_code = buffor_code + f"\tdiv BYTE {a if isinstance(a, int) else f'[{a}]'}\n"
+                        (regs, op) = genAsm('div', regs, asmData(0, DT.REGISTER, BITS.B16), asmData(a[0], a[1], dosDTS[a[1]]), flags = GENASMF.SV | GENASMF.B8)
+                        buffor_code += op
+                        ar_len -= 1
                         buffor_code = buffor_code + f"\tmov al, ah\n"
                         buffor_code = buffor_code + f"\txor ah, ah\n"
+                    else:
+                        error(Error.COMPILE, "Not enough arguments in arithmetics", flags = LogFlag.FAIL)
                 case OP.SHL:
-                    if begin_arith:
+                    buffor_code = buffor_code + ";; -- SHL --\n"
+                    if len(stack) > 0:
+                        if not ax:
+                            b = stack.pop()
+                            (regs, op) = genAsm('mov', regs, asmData(0, DT.REGISTER, BITS.B16), asmData(b[0], b[1], dosDTS[b[1]]))
+                            buffor_code += op
                         a = stack.pop()
-                        ax_used = True
-                        if isinstance(a, int):
-                            buffor_code = buffor_code + f"\tshl ax, {a}\n"
+                        if isinstance(a[0], str):
+                            (regs, op) = genAsm('mov', regs, asmData(2, DT.REGISTER, BITS.B16), asmData(a[0], a[1], dosDTS[a[1]]), flags = GENASMF.B8)
+                            buffor_code += op
+                            (regs, op) = genAsm('shl', regs, asmData(0, DT.REGISTER, BITS.B16), asmData(2, DT.REGISTER, BITS.B8))
+                            buffor_code += op
                         else:
-                            (ax_used, op) = gen_asm_debug('mov', 'c', a, data.vars[b].type, state, ax_used, force_value=True)
-                            buffor_code = buffor_code + op
-                            buffor_code = buffor_code + f"\tshl ax, cl\n"
+                            (regs, op) = genAsm('shl', regs, asmData(0, DT.REGISTER, BITS.B16), asmData(a[0], a[1], BITS.B8))
+                            buffor_code += op
                     else:
-                        begin_arith = True
-                        a = stack.pop()
-                        b = stack.pop()
-                        ax_used = True
-                        if isinstance(b, int):
-                            (ax_used, op) = gen_asm_debug('mov', 'a', a, data.vars[b].type, state, ax_used)
-                            buffor_code = buffor_code + op
-                            buffor_code = buffor_code + f"\tshl ax, {b}\n"
-                        else:
-                            (ax_used, op) = gen_asm_debug('mov', 'a', a, data.vars[b].type, state, ax_used)
-                            buffor_code = buffor_code + op
-                            (ax_used, op) = gen_asm_debug('mov', 'c', b, data.vars[b].type, state, ax_used, force_value=True)
-                            buffor_code = buffor_code + op
-                            buffor_code = buffor_code + f"\tshl ax, cl\n"
+                        error(Error.COMPILE, "Not enough arguments in arithmetics", flags = LogFlag.FAIL)
                 case OP.SHR:
-                    if begin_arith:
+                    buffor_code = buffor_code + ";; -- SHL --\n"
+                    if len(stack) > 0:
+                        if not ax:
+                            b = stack.pop()
+                            (regs, op) = genAsm('mov', regs, asmData(0, DT.REGISTER, BITS.B16), asmData(b[0], b[1], dosDTS[b[1]]))
+                            buffor_code += op
                         a = stack.pop()
-                        ax_used = True
-                        if isinstance(a, int):
-                            buffor_code = buffor_code + f"\tshr ax, {a}\n"
+                        if isinstance(a[0], str):
+                            (regs, op) = genAsm('mov', regs, asmData(2, DT.REGISTER, BITS.B16), asmData(a[0], a[1], dosDTS[a[1]]), flags = GENASMF.B8)
+                            buffor_code += op
+                            (regs, op) = genAsm('shr', regs, asmData(0, DT.REGISTER, BITS.B16), asmData(2, DT.REGISTER, BITS.B8))
+                            buffor_code += op
                         else:
-                            (ax_used, op) = gen_asm_debug('mov', 'c', a, data.vars[b].type, state, ax_used, force_value=True)
-                            buffor_code = buffor_code + op
-                            buffor_code = buffor_code + f"\tshr ax, cl\n"
+                            (regs, op) = genAsm('shr', regs, asmData(0, DT.REGISTER, BITS.B16), asmData(a[0], a[1], BITS.B8))
+                            buffor_code += op
                     else:
-                        begin_arith = True
-                        a = stack.pop()
-                        b = stack.pop()
-                        ax_used = True
-                        if isinstance(b, int):
-                            (ax_used, op) = gen_asm_debug('mov', 'a', a, data.vars[b].type, state, ax_used)
-                            buffor_code = buffor_code + op
-                            buffor_code = buffor_code + f"\tshr ax, {b}\n"
-                        else:
-                            (ax_used, op) = gen_asm_debug('mov', 'a', a, data.vars[b].type, state, ax_used)
-                            buffor_code = buffor_code + op
-                            (ax_used, op) = gen_asm_debug('mov', 'c', b, data.vars[b].type, state, ax_used, force_value=True)
-                            buffor_code = buffor_code + op
-                            buffor_code = buffor_code + f"\tshr ax, cl\n"
+                        error(Error.COMPILE, "Not enough arguments in arithmetics", flags = LogFlag.FAIL)
+                case OP.PTR:
+                    error(Error.COMPILE, "not implemented yet!")
                 case OP.IF:
                     buffor_code = buffor_code + ";; -- IF --\n"
                     state = ComState.CONDITION
                 case OP.WHILE:
                     buffor_code = buffor_code + ";; -- WHILE --\n"
                     state = ComState.CONDITION
-                case OP.EQUAL:
-                    if len(stack) > 0:
+                case OP.EQUAL | OP.GREATER | OP.LESS | OP.GE | OP.LE:
+                    if len(stack) == 1:
                         a = stack.pop()
-                        if isinstance(a, int):
-                            buffor_code = buffor_code + f"\tmov bx, {a}\n"
-                        else:
-                            if data.vars[a].type in [DT.UINT8]:
-                                buffor_code = buffor_code + f"\tmov bl, [{a}]\n"
-                            elif data.vars[a].type in [DT.UINT16]:
-                                buffor_code = buffor_code + f"\tmov bx, [{a}]\n"
-                            else:
-                                error(Error.COMPILE, "unknown type for comparison")
+                        (regs, op) = genAsm('mov', regs, asmData(1, DT.REGISTER, dosDTS[a[1]]), asmData(a[0], a[1], dosDTS[a[1]]))
+                        buffor_code += op
+                    elif len(stack) == 0:
+                        (regs, op) = genAsm('mov', regs, asmData(1, DT.REGISTER, BITS.B16), asmData(0, DT.REGISTER, BITS.B16))
+                        buffor_code += op
                     else:
-                        buffor_code = buffor_code + f"\tmov bx, ax\n"
-                    #buffor_code = buffor_code + f"\tmov bx, ax\n"
+                        error(Error.COMPILE, "Unused value or variable in arithmetics", flags = LogFlag.WARNING, exitAfter = False)
                     condition = x.type
-                    begin_arith = False
-                case OP.GREATER:
-                    if len(stack) > 0:
-                        a = stack.pop()
-                        if isinstance(a, int):
-                            buffor_code = buffor_code + f"\tmov bx, {a}\n"
-                        else:
-                            if data.vars[a].type in [DT.UINT8]:
-                                buffor_code = buffor_code + f"\txor bx, bx\n"
-                                buffor_code = buffor_code + f"\tmov bl, [{a}]\n"
-                            elif data.vars[a].type in [DT.UINT16]:
-                                buffor_code = buffor_code + f"\tmov bx, [{a}]\n"
-                            else:
-                                error(Error.COMPILE, "unknown type for comparison")
-                    else:
-                        buffor_code = buffor_code + f"\tmov bx, ax\n"
-                    condition = x.type
-                    begin_arith = False
-                case OP.LESS:
-                    if len(stack) > 0:
-                        a = stack.pop()
-                        if isinstance(a, int):
-                            buffor_code = buffor_code + f"\tmov bx, {a}\n"
-                        else:
-                            if data.vars[a].type in [DT.UINT8]:
-                                buffor_code = buffor_code + f"\tmov bl, [{a}]\n"
-                            elif data.vars[a].type in [DT.UINT16]:
-                                buffor_code = buffor_code + f"\tmov bx, [{a}]\n"
-                            else:
-                                error(Error.COMPILE, "unknown type for comparison")
-                    else:
-                        buffor_code = buffor_code + f"\tmov bx, ax\n"
-                    condition = x.type
-                    begin_arith = False
-                case OP.GE:
-                    if len(stack) > 0:
-                        a = stack.pop()
-                        if isinstance(a, int):
-                            buffor_code = buffor_code + f"\tmov bx, {a}\n"
-                        else:
-                            if data.vars[a].type in [DT.UINT8]:
-                                buffor_code = buffor_code + f"\tmov bl, [{a}]\n"
-                            elif data.vars[a].type in [DT.UINT16]:
-                                buffor_code = buffor_code + f"\tmov bx, [{a}]\n"
-                            else:
-                                error(Error.COMPILE, "unknown type for comparison")
-                    else:
-                        buffor_code = buffor_code + f"\tmov bx, ax\n"
-                    condition = x.type
-                    begin_arith = False
-                case OP.LE:
-                    if len(stack) > 0:
-                        a = stack.pop()
-                        if isinstance(a, int):
-                            buffor_code = buffor_code + f"\tmov bx, {a}\n"
-                        else:
-                            if data.vars[a].type in [DT.UINT8]:
-                                buffor_code = buffor_code + f"\tmov bl, [{a}]\n"
-                            elif data.vars[a].type in [DT.UINT16]:
-                                buffor_code = buffor_code + f"\tmov bx, [{a}]\n"
-                            else:
-                                error(Error.COMPILE, "unknown type for comparison")
-                    else:
-                        buffor_code = buffor_code + f"\tmov bx, ax\n"
-                    condition = x.type
-                    begin_arith = False
                 case OP.CONJUMP:
-                    if len(stack) > 0:
+                    if len(stack) == 1:
                         a = stack.pop()
-                        if isinstance(a, int):
-                            buffor_code = buffor_code + f"\tmov ax, {a}\n"
-                        else:
-                            if data.vars[a].type in [DT.UINT8]:
-                                if ax_used:
-                                    buffor_code = buffor_code + f"\txor ax, ax\n"
-                                    ax_used = False
-                                buffor_code = buffor_code + f"\tmov al, [{a}]\n"
-                            elif data.vars[a].type in [DT.UINT16]:
-                                ax_used = True
-                                buffor_code = buffor_code + f"\tmov ax, [{a}]\n"
-                            else:
-                                error(Error.COMPILE, "unknown type for comparison")
-                    else:
+                        (regs, op) = genAsm('mov', regs, asmData(0, DT.REGISTER, BITS.B16), asmData(a[0], a[1], dosDTS[a[1]]))
+                        buffor_code += op
+                    elif len(stack) == 0:
                         pass
-                    buffor_code = buffor_code + "\tcmp ax, bx\n"
+                    else:
+                        error(Error.COMPILE, "Unfinished arithmetics before conditional jump", flags = LogFlag.WARNING)
+                    (regs, op) = genAsm('cmp', regs, asmData(1, DT.REGISTER, BITS.B16), asmData(0, DT.REGISTER, BITS.B16))
+                    buffor_code += op
                     state = ComState.NONE
                     match condition:
                         case OP.EQUAL:
@@ -1109,29 +975,23 @@ def compile_data(data: list[dict]) -> None:
                                 buffor_code = buffor_code + f"bar{ip}:\n"
                             else:
                                 buffor_code = buffor_code + f"\tjg {x.value}\n"
-                    begin_arith = False
+                    (ax, bx, cx, dx, bp, sp, di, si) = regs
                 case OP.JUMP:
-                    buffor_code = buffor_code + f"\tjmp {x.value}\n"
+                    buffor_code += f"\tjmp {x.value}\n"
                     state = ComState.NONE
+                    (ax, bx, cx, dx, bp, sp, di, si) = regs
                 case OP.LABEL:
-                    buffor_code = buffor_code + f"{x.value}:\n"
+                    buffor_code += f"{x.value}:\n"
                 case OP.COPY:
-                    a = stack.pop()
-                    stack.append(a)
-                    stack.append(a)
+                    error(Error.COMPILE, "COPY: Currently Unsupported!")
                 case OP.PRINT:
-                    a = stack.pop()
-                    #out.write(str(a))
+                    error(Error.COMPILE, "PRINT: Currently Unsupported!")
                 case OP.PRINT_NL:
-                    #out.write('\n')
-                    pass
+                    error(Error.COMPILE, "PRINT_NL: Currently Unsupported!")
                 case OP.PRINT_AND_NL:
-                    a = stack.pop()
-                    #out.write(str(a))
-                    #out.write('\n')
+                    error(Error.COMPILE, "PRINT_AND_NL: Currently Unsupported!")
                 case OP.PRINT_CHAR:
-                    a = stack.pop()
-                    #out.write(chr(a))
+                    error(Error.COMPILE, "PRINT_CHAR: Currently Unsupported!")
                 case OP.TYPE:
                     pass
                 case OP.BUF:
@@ -1139,25 +999,16 @@ def compile_data(data: list[dict]) -> None:
                         match data.vars[temp1].type:
                             case DT.UINT8MEM:
                                 a = stack.pop()
-                                buffor_data = buffor_data + f"\t{data.vars[temp1].name} db {a-2},{a-1} dup (0)\n"
+                                buffor_data = buffor_data + f"\t{data.vars[temp1].name} db {a[0]-2},{a[0]-1} dup (0)\n"
                             case DT.UINT16MEM:
                                 a = stack.pop()
-                                buffor_data = buffor_data + f"\t{data.vars[temp1].name} dw {a-2},{a-1} dup (0)\n"
+                                buffor_data = buffor_data + f"\t{data.vars[temp1].name} dw {a[0]-2},{a[0]-1} dup (0)\n"
                         #data.vars[temp1].value
                         state = ComState.NONE
                     else:
                         error(Error.COMPILE, "Buf used in wrong position")
                 case OP.VAR:
-                    #print(stack, ip, state)
-                    if ComState.ARITHMETIC in state or ComState.CONDITION in state:
-                        if data.vars[x.value].type in [DT.UINT8, DT.UINT16]:
-                            #buffor_code += buffor_code + f"\t{data.vars[x.value].name} dw {a} dup (?)\n"
-                            stack.append(data.vars[x.value].name)
-                        elif data.vars[x.value].type in [DT.UINT8MEM, DT.UINT16MEM]:
-                            stack.append(data.vars[x.value].name)
-                        else:
-                            error(Error.COMPILE, "Only u8, u16, u8p and u16p are implemented yet")
-                    else:
+                    if ComState.ARITHMETIC not in state and ComState.CONDITION not in state:
                         temp1 = x.value
                         if not data.vars[x.value].defined:
                             if data.vars[x.value].type in [DT.UINT8]:
@@ -1165,38 +1016,43 @@ def compile_data(data: list[dict]) -> None:
                             elif data.vars[x.value].type in [DT.UINT16]:
                                 buffor_data = buffor_data + f"\t{data.vars[temp1].name} dw ?\n"
                             data.vars[x.value].defined = True
-                        stack.append(data.vars[x.value].name)
-                    last_type = data.vars[x.value].type
+                    stack.append((data.vars[x.value].name, data.vars[x.value].type))
                 case OP.SET:
                     state = ComState.VARDEF | ComState.ARITHMETIC
                     stack.pop()
                 case OP.DOS:
-                    a = stack.pop()
+                    print(stack)
+                    a = stack.pop()[0]
                     if a == 9:
+                        buffor_code += ";; -- DOS -- 9 --\n"
                         if len(stack) > 0:
                             b = stack.pop()
-                            if isinstance(b, str):
-                                buffor_code = buffor_code + f"\tmov dx, offset {b}\n"
+                            if isinstance(b[0], str):
+                                (regs, op) = genAsm('mov', regs, asmData(3, DT.REGISTER, BITS.B16), asmData(b[0], b[1], dosDTS[b[1]]))
+                                buffor_code += op
                             else:
                                 error(Error.COMPILE, "int type in dos call for address")
                         else:
-                            buffor_code = buffor_code + f"\tmov dx, ax\n"
-                        if ax_used:
-                            buffor_code = buffor_code + "\txor ax, ax\n"  
-                        ax_used = True
-                        buffor_code = buffor_code + "\tmov ah, 9\n"
-                        buffor_code = buffor_code + "\tint 21h\n"
+                            (regs, op) = genAsm('mov', regs, asmData(3, DT.REGISTER, BITS.B16), asmData(0, DT.REGISTER, BITS.B16))
+                            buffor_code += op
+                        (regs, op) = genAsm('mov', regs, asmData(0, DT.REGISTER, BITS.B8), asmData(9, DT.IMMEDIATE, BITS.B8), flags = GENASMF.FH | GENASMF.B8)
+                        buffor_code += op
+                        buffor_code += "\tint 21h\n"
                     elif a == 10:
-                        if ax_used:
-                            buffor_code = buffor_code + "\txor ax, ax\n"
-                        ax_used = True
-                        buffor_code = buffor_code + "\tmov ah, 10\n"
-                        b = stack.pop()
-                        if isinstance(b, str):
-                            buffor_code = buffor_code + f"\tmov dx, offset {b}\n"
+                        buffor_code += ";; -- DOS -- 10 --\n"
+                        if len(stack) > 0:
+                            b = stack.pop()
+                            if isinstance(b[0], str):
+                                (regs, op) = genAsm('mov', regs, asmData(3, DT.REGISTER, BITS.B16), asmData(b[0], b[1], dosDTS[b[1]]))
+                                buffor_code += op
+                            else:
+                                error(Error.COMPILE, "int type in dos call for address")
                         else:
-                            error(Error.COMPILE, "int type in dos call for address")
-                        buffor_code = buffor_code + "\tint 21h\n"
+                            (regs, op) = genAsm('mov', regs, asmData(3, DT.REGISTER, BITS.B16), asmData(0, DT.REGISTER, BITS.B16))
+                            buffor_code += op
+                        (regs, op) = genAsm('mov', regs, asmData(0, DT.REGISTER, BITS.B8), asmData(10, DT.IMMEDIATE, BITS.B8), flags = GENASMF.FH | GENASMF.B8)
+                        buffor_code += op
+                        buffor_code += "\tint 21h\n"
                     else:
                         error(Error.SIMULATE, "only 9 and 10 dos calls are implemented yet")
                 case OP.LINUX:
@@ -1217,110 +1073,43 @@ def compile_data(data: list[dict]) -> None:
 
                 case OP.MEMWRITE:
                     buffor_code += ";; -- MEMWRITE --\n"
-                    a = stack.pop()
-                    if len(stack) > 0:
+                    if len(stack) == 1:
+                        a = stack.pop()
+                        (regs, op) = genAsm('mov', regs, asmData(0, DT.REGISTERMEM, BITS.B8), asmData(a[0], a[1], dosDTS[a[1]]))
+                    elif len(stack) == 2:
+                        a = stack.pop()
                         b = stack.pop()
-                        if isinstance(b, str):
-                            if isinstance(a, str):
-                                (_, op) = gen_asm_debug('mov', 'b', a, data.vars[a].type, force_value=True)
-                                buffor_code = buffor_code + op
-                                buffor_code = buffor_code + f"\tmov si, WORD PTR [{b}]\n"
-                                buffor_code = buffor_code + f"\tmov BYTE PTR [si], {'bx' if data.vars[a].type == DT.UINT16MEM else 'bl'}\n"
-                            else:
-                                buffor_code = buffor_code + f"\tmov si, WORD PTR [{b}]\n"
-                                buffor_code = buffor_code + f"\tmov BYTE PTR [si], {a}\n"
-                        else:
-                            buffor_code = buffor_code + f"\tmov [ax], {b}\n"
-                            pass
-                            error(Error.COMPILE, "int type in memwrite for address")
-                    else:
-                        if isinstance(a, str):
-                            buffor_code = buffor_code + f"\tmov di, ax\n"
-                            buffor_code = buffor_code + f"\tmov BYTE PTR [di], [{a}]\n"
-                        else:
-                            buffor_code = buffor_code + f"\tmov di, ax\n"
-                            buffor_code = buffor_code + f"\tmov BYTE PTR [di], {a}\n"
-
-                    #print(ip, a, data.vars[temp1].type)
-                    #match data.vars[temp1].type:
-                        #case DT.UINT8MEM:
-                            #heap[b] = bfromNum(DT.UINT8, a)[0]
-                        #case DT.UINT16MEM:
-                            #heap[b:b+2] = bfromNum(DT.UINT16, a)
-                        #case _:
-                            #error(Error.SIMULATE, "MEM WRITE implemented only to UINT8MEM and UINT16MEM yet!")
+                        (regs, op) = genAsm('mov', regs, asmData(b[0], b[1], dosDTS[b[1]]), asmData(a[0], a[1], dosDTS[a[1]]))
                 case OP.MEMREAD:
-                    # TODO - bx_used
                     buffor_code += ";; -- MEMREAD --\n"
                     if len(stack) > 0:
-                        #print(stack)
                         a = stack.pop()
-                        if isinstance(a, int):
-                            error(Error.COMPILE, "Wrong Type, should be str not int")
-                        else:
-                            if data.vars[a].type in [DT.UINT8MEM]:
-                                if ax_used:
-                                    buffor_code = buffor_code + f"\txor ax, ax\n"
-                                    ax_used = False
-                                buffor_code = buffor_code + f"\tmov al, [{a}]\n"
-                            elif data.vars[a].type in [DT.UINT16MEM]:
-                                ax_used = True
-                                buffor_code = buffor_code + f"\tmov ax, [{a}]\n"
-                            else:
-                                error(Error.COMPILE, "Wrong Type, should be pointer")
+                        if a[1] != DT.UINT16MEM and a[1] != DT.UINT8MEM:
+                            error(Error.COMPILE, "Writing to non memory variable")
+                        (regs, op) = genAsm('mov', regs, asmData(0, DT.REGISTER, BITS.B16), asmData(a[0], a[1], dosDTS[a[1]]))
                     else:
-                        buffor_code += f"\tmov si, ax\n"
-                        (ax_used, op) = gen_asm_debug('mov', 'a', 'si', DT.UINT8, ax_used=ax_used, force_value=True)
+                        (regs, op) = genAsm('mov', regs, asmData(0, DT.REGISTER, BITS.B16), asmData(0, DT.REGISTERMEM, BITS.B16))
                         buffor_code += op
-                        ax_used = True
-                    begin_arith = True
-                        #buffor_code = buffor_code + "\tmov ax, \n"
-                    #stack.append(int.from_bytes(data.vars[a].type))
-                    #if isinstance(a, str):
-                        #buffor_code = buffor_code + f"\tmov ax, [{a}]\n"
-                    #else:
-                        #buffor_code = buffor_code + f"\tmov ax, {a}\n"
-                    #else:
-                        #error(Error.COMPILE, "int type in memread for address")
-                    #match last_type:
-                        #case DT.UINT8MEM:
-                            #stack.append(int.from_bytes(heap[a:a+1]))
-                        #case DT.UINT16MEM:
-                            #stack.append(int.from_bytes(heap[a:a+2]))
-                        #case _:
-                            #error(Error.SIMULATE, "MEMREAD implemented only to UINT8MEM and UINT16MEM yet!")
-                    #print(stack, [x for x in heap[0:100]])
-
                 case OP.COLON:
                     if ComState.VARDEF in state:
                         if len(stack) > 0:
                             a = stack.pop()
-                            if isinstance(a, int):
-                                buffor_code = buffor_code + f"\tmov [{data.vars[temp1].name}], {a}\n"
-                            else:
-                                (_, op) = gen_asm_debug('mov', 'b', a, data.vars[a].type, force_value=True)
-                                buffor_code = buffor_code + op
-                                buffor_code = buffor_code + f"\tmov [{data.vars[temp1].name}], {'bx' if data.vars[temp1].type == DT.UINT16MEM else 'bl'}\n"
+                            (regs, op) = genAsm('mov', regs, asmData(data.vars[temp1].name, data.vars[temp1].type, dosDTS[data.vars[temp1].type]), asmData(a[0], a[1], dosDTS[a[1]]))
+                            buffor_code += op
                         else:
-                            if data.vars[temp1].type in [DT.UINT8]:
-                                buffor_code = buffor_code + f"\tmov [{data.vars[temp1].name}], al\n"
-                            elif data.vars[temp1].type in [DT.UINT16]:
-                                buffor_code = buffor_code + f"\tmov [{data.vars[temp1].name}], ax\n"
-                            else:
-                                error(Error.COMPILE, "Unknown type")
-                            #buffor_code = buffor_code + f"\tmov [{data.vars[temp1].name}], ax\n"
-                        #data.vars[temp1].value = bytearray(bfromNum(data.vars[temp1].type, stack[-1]))
+                            (regs, op) = genAsm('mov', regs, asmData(data.vars[temp1].name, data.vars[temp1].type, dosDTS[data.vars[temp1].type]), asmData(0, DT.REGISTER, dosDTS[data.vars[temp1].type]))
+                            buffor_code += op
                     state = ComState.NONE
-                    begin_arith = False
+                    (ax, bx, cx, dx, bp, sp, di, si) = regs
             print(stack, x)
-            input()
+            #input()
         buffor_code = buffor_code + "\tmov ah, 4Ch\n\tint 21h\nEND start"
         #print(buffor_start, buffor_data, buffor_code)
         return buffor_start + buffor_data + buffor_code
 
 def simulate_data(data: codeBlock, out = sys.stdout):
     
-    if (n:=OP.COUNT.value) != (m:=36):
+    if (n:=OP.COUNT.value) != (m:=37):
         error(Error.ENUM, f"{BOLD_}Exhaustive operation parsing protection in {BOLD_}simulate_data{BACK_}", expected = (m,n), flags = LogFlag.FAIL | LogFlag.EXPECTED)
     
     heap = bytearray(HEAP_SIZE)
@@ -1754,7 +1543,7 @@ def Parse_condition_block(data: codeBlock, typeof: OP) -> list[OpType]:
 
     # FIX LABELS WHEN TESTING? (idk why the problem is here)
 
-    if (n:=OP.COUNT.value) != (m:=36):
+    if (n:=OP.COUNT.value) != (m:=37):
         error(Error.ENUM, f"{BOLD_}Exhaustive operation parsing protection in {BOLD_}Parse_condition_block{BACK_}", expected = (m,n), flags = LogFlag.FAIL | LogFlag.EXPECTED)
     if data.type != CB.CONDITION:
         error(Error.PARSE, f"Passed non-condition type codeblock to {BOLD_}Parse_condition_block{BACK_}", flags = LogFlag.FAIL)
@@ -1826,7 +1615,7 @@ def Parse_condition_block(data: codeBlock, typeof: OP) -> list[OpType]:
 
 def Third_token_parse(data: codeBlock) -> codeBlock:
     
-    if (n:=OP.COUNT.value) != (m:=36):
+    if (n:=OP.COUNT.value) != (m:=37):
         error(Error.ENUM, f"{BOLD_}Exhaustive operation parsing protection in {BOLD_}Third_token_parse{BACK_}", expected = (m,n), flags = LogFlag.FAIL | LogFlag.EXPECTED)
     if (n:=CB.COUNT.value) != (m:=5):
         error(Error.ENUM, f"{BOLD_}Exhaustive codeBlock parsing protection in {BOLD_}Third_token_parse{BACK_}", expected = (m,n), flags = LogFlag.FAIL | LogFlag.EXPECTED)
@@ -1930,7 +1719,7 @@ def Third_token_parse(data: codeBlock) -> codeBlock:
 
 def Secound_token_parse(data: codeBlock, index_offset: int = 0) -> codeBlock:
 
-    if (n:=OP.COUNT.value) != (m:=36):
+    if (n:=OP.COUNT.value) != (m:=37):
         error(Error.ENUM, f"{BOLD_}Exhaustive operation parsing protection in {BOLD_}Secound_token_parse{BACK_}", expected = (m,n), flags = LogFlag.FAIL | LogFlag.EXPECTED)
     if (n:=CB.COUNT.value) != (m:=5):
         error(Error.ENUM, f"{BOLD_}Exhaustive codeBlock parsing protection in {BOLD_}Secound_token_parse{BACK_}", expected = (m,n), flags = LogFlag.FAIL | LogFlag.EXPECTED)
@@ -1974,7 +1763,7 @@ def Secound_token_parse(data: codeBlock, index_offset: int = 0) -> codeBlock:
         
 def First_token_parse(data: list[Token]) -> codeBlock:
 
-    if (n:=OP.COUNT.value) != (m:=36):
+    if (n:=OP.COUNT.value) != (m:=37):
         error(Error.ENUM, f"{BOLD_}Exhaustive operation parsing protection in {BOLD_}First_token_parse{BACK_}", expected = (m,n), flags = LogFlag.FAIL | LogFlag.EXPECTED)
 
     # ret: codeBlock = codeBlock(0) this line was bugging tests, actually stupid bug
