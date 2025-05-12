@@ -8,28 +8,28 @@ u8p oct = 18 buf;
 
 input 10 dos ;
 
-u8 i = input 1+ ,mem ;
+u8 i = &input 1+ ,mem ;
 u8 j = 0;
 
-u16 tmp1 = 0;
-u16 tmp2 = bin input 1+ ,mem 3 * 1 + + ;
+u8 tmp1 = 0;
+u16 tmp2 = &bin i 3 * 1 + + ;
 u8 tmp3 = 0;
 
 \\ input -> bin
 
 while(i > 0){
     test 9 dos ;
-    tmp1 = input 2 i 1 -++ ,mem 48-;
+    tmp1 = &input 1 *i ++ ,mem 48-;
     j = 3;
     while(j > 0){
-        tmp2 = tmp2 1 - ;
+        tmp2 = tmp2 1- ;
         tmp3 = 48 tmp1 2 % +;
-        tmp2 tmp3 .mem ;
+        *tmp2 tmp3 .mem ;
         tmp1 = tmp1 2 /;
         j = j 1 -;
     }
     i = i 1-;
 }
-tmp2 = bin input 1+ ,mem 3 * 1 ++;
-tmp2 36 .mem ;
-bin 1+ 9 dos ;
+tmp2 = &bin &input 1+ ,mem 3 * 1 ++;
+*tmp2 36 .mem ;
+&bin 1+ 9 dos ;

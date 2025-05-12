@@ -9,7 +9,7 @@
 	voct db 16,17 dup (0)
 	vi db ?
 	vj db ?
-	vtmp1 dw ?
+	vtmp1 db ?
 	vtmp2 dw ?
 	vtmp3 db ?
 .CODE
@@ -21,108 +21,120 @@ start:
 	mov ah, 10
 	int 21h
 ;; -- ADD --
+	mov si, offset vinput
+	mov ax, si
 	add ax, 1
 ;; -- MEMREAD --
+	mov si, ax
+	mov ax, [si]
 	mov byte [vi], al
 	mov byte [vj], 0
-	mov word [vtmp1], 0
-;; -- ADD --
-	add ax, 1
-;; -- MEMREAD --
+	mov byte [vtmp1], 0
 ;; -- MUL --
-	mov dx, 3
-	mul dx
+	mov al, byte [vi]
+	mov dl, 3
+	mul dl
 ;; -- ADD --
 	add ax, 1
 ;; -- ADD --
-	add ax, offset vbin
+	mov si, offset vbin
+	add ax, si
 	mov word [vtmp2], ax
 	mov byte [vtmp3], 0
-label66:
+label63:
 ;; -- WHILE --
-	xor bx, bx
 	mov bl, byte [vi]
 	mov ax, 0
 	cmp bx, ax
-	jg bar70
-	jmp label147
-bar70:
+	jg bar67
+	jmp label142
+bar67:
 ;; -- DOS -- 9 --
 	mov dx, offset vtest
 	mov ah, 9
 	int 21h
-;; -- SUB --
-	sub ax, 1
 ;; -- ADD --
-	xor ax, ax
+	mov ax, 1
 	add al, byte [vi]
 ;; -- ADD --
-	add ax, 2
+	mov si, offset vinput
+	add ax, si
 ;; -- MEMREAD --
+	mov si, ax
+	mov al, [si]
 ;; -- SUB --
 	sub ax, 48
-	mov word [vtmp1], ax
+	mov byte [vtmp1], al
 	mov byte [vj], 3
-label93:
+label88:
 ;; -- WHILE --
-	xor bx, bx
 	mov bl, byte [vj]
 	mov ax, 0
 	cmp bx, ax
-	jg bar97
-	jmp label133
-bar97:
+	jg bar92
+	jmp label128
+bar92:
 ;; -- SUB --
+	mov ax, word [vtmp2]
 	sub ax, 1
-	mov di, offset vtmp2
-	mov si, offset vtmp2
-	mov word [di], si
+	mov word [vtmp2], ax
 ;; -- MOD --
+	mov al, byte [vtmp1]
 	mov dl, 2
 	div dl
 	mov al, ah
 	xor ah, ah
 ;; -- ADD --
-	add ax, vtmp1
-	mov byte [vtmp3], 48
+	add ax, 48
+	mov byte [vtmp3], al
 ;; -- MEMWRITE --
+	mov di, word [vtmp2]
+	mov si, offset vtmp3
+	mov si, offset vtmp3
+	movsb
 ;; -- DIV --
+	mov al, byte [vtmp1]
 	mov dl, 2
 	div dl
 	xor ah, ah
-	mov di, offset vtmp1
-	mov si, offset vtmp1
-	mov word [di], si
+	mov byte [vtmp1], al
 ;; -- SUB --
+	mov al, byte [vj]
 	sub ax, 1
-	mov di, offset vj
-	mov si, offset vj
-	movsb
-	jmp label93
-label133:
+	mov byte [vj], al
+	jmp label88
+label128:
 ;; -- SUB --
+	mov al, byte [vi]
 	sub ax, 1
-	mov di, offset vi
-	mov si, offset vi
-	movsb
-	jmp label66
-label147:
+	mov byte [vi], al
+	jmp label63
+label142:
 ;; -- ADD --
+	mov si, offset vinput
+	mov ax, si
 	add ax, 1
 ;; -- MEMREAD --
+	mov si, ax
+	mov ax, [si]
 ;; -- MUL --
-	mov dx, 3
-	mul dx
+	mov dl, 3
+	mul dl
 ;; -- ADD --
 	add ax, 1
 ;; -- ADD --
-	add ax, offset vbin
+	mov si, offset vbin
+	add ax, si
 	mov word [vtmp2], ax
 ;; -- MEMWRITE --
+	mov di, [vtmp2]
+	mov word ptr [di], 36
 ;; -- ADD --
+	mov si, offset vbin
+	mov ax, si
 	add ax, 1
 ;; -- DOS -- 9 --
-	mov dx, offset vbin
+	mov dx, ax
 	mov ah, 9
 	int 21h
 	mov ah, 4Ch
