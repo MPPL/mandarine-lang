@@ -665,9 +665,9 @@ def genAsm(op: str, regs: tuple[Reg,Reg,Reg,Reg,Reg,Reg,Reg,Reg], dest: asmData 
                     case DT.REGISTER:
                         match dest.datatype:
                             case DT.UINT8 | DT.UINT8MEM:
-                                ret += f"\t{op} byte [{dest.data}], {b16tuple[src.data]}\n"
+                                ret += f"\t{op} [{dest.data}], {b16tuple[src.data]}\n"
                             case DT.UINT16 | DT.UINT16MEM:
-                                    ret += f"\t{op} word [{dest.data}], {b16tuple[src.data]}\n"
+                                    ret += f"\t{op} [{dest.data}], {b16tuple[src.data]}\n"
                             case DT.REGISTER:
                                 ret += f"\t{op} {b16tuple[dest.data]}, {b16tuple[src.data]}\n"
                                 regs[dest.data].DType = src.datatype
@@ -724,7 +724,7 @@ def genAsm(op: str, regs: tuple[Reg,Reg,Reg,Reg,Reg,Reg,Reg,Reg], dest: asmData 
                                     ret += f"\t{op} byte [{b16tuple[6]}], byte [{b16tuple[7]}]\n"
                             case DT.UINT16 | DT.UINT16MEM:
                                 if dest.refCount != 0:
-                                    ret += f"\t{op} {b16tuple[6]}, word [{dest.data}]\n"
+                                    ret += f"\t{op} {b16tuple[6]}, [{dest.data}]\n"
                                 else:
                                     ret += f"\t{op} {b16tuple[6]}, offset {dest.data}\n"
                                 if not src.isReg:
@@ -742,7 +742,7 @@ def genAsm(op: str, regs: tuple[Reg,Reg,Reg,Reg,Reg,Reg,Reg,Reg], dest: asmData 
                                 if src.isReg:
                                     ret += f"\t{op} {b8tuplel[dest.data]}, {resAD(src)}\n"
                                 else:
-                                    ret += f"\t{op} {b8tuplel[dest.data]}, byte {resAD(src)}\n"
+                                    ret += f"\t{op} {b8tuplel[dest.data]}, {resAD(src)}\n"
                                 regs[dest.data].DType = src.datatype
                                 regs[dest.data].used = True
                             case DT.REGISTERMEM:
@@ -809,7 +809,7 @@ def genAsm(op: str, regs: tuple[Reg,Reg,Reg,Reg,Reg,Reg,Reg,Reg], dest: asmData 
                                 if src.isReg:
                                     ret += f"\t{op} {b16tuple[dest.data]}, {resAD(src)}\n"
                                 else:
-                                    ret += f"\t{op} {b16tuple[dest.data]}, word {resAD(src)}\n"
+                                    ret += f"\t{op} {b16tuple[dest.data]}, {resAD(src)}\n"
                                 regs[dest.data].DType = src.datatype
                                 regs[dest.data].used = True
                             case DT.REGISTERMEM:
@@ -842,7 +842,7 @@ def genAsm(op: str, regs: tuple[Reg,Reg,Reg,Reg,Reg,Reg,Reg,Reg], dest: asmData 
                                 if not src.isReg:
                                     ret += f"\t{op} {b16tuple[dest.data]}, offset {src.data}\n"
                                 else:
-                                    ret += f"\t{op} {b16tuple[dest.data]}, word [{resAD(src)}]\n"
+                                    ret += f"\t{op} {b16tuple[dest.data]}, [{resAD(src)}]\n"
                                 regs[dest.data].DType = src.datatype
                                 regs[dest.data].used = True
                             case DT.REGISTERMEM:
@@ -853,7 +853,7 @@ def genAsm(op: str, regs: tuple[Reg,Reg,Reg,Reg,Reg,Reg,Reg,Reg], dest: asmData 
                     case DT.IMMEDIATE:
                         match dest.datatype:
                             case DT.UINT8 | DT.UINT8MEM:
-                                ret += f"\t{op} byte [{dest.data}], {cutNumToBit(src.data, BITS.B8)}\n"
+                                ret += f"\t{op} [{dest.data}], {cutNumToBit(src.data, BITS.B8)}\n"
                             case DT.UINT16 | DT.UINT16MEM:
                                 if dest.refCount != 0:
                                     ret += f"\t{op} {b16tuple[6]}, [{dest.data}]\n"
@@ -875,9 +875,9 @@ def genAsm(op: str, regs: tuple[Reg,Reg,Reg,Reg,Reg,Reg,Reg,Reg], dest: asmData 
                         ret += rett
                         match dest.datatype:
                             case DT.UINT8 | DT.UINT8MEM:
-                                ret += f"\t{op} byte [{dest.data}], {b8tuplel[regToId[src.data]]}\n"
+                                ret += f"\t{op} [{dest.data}], {b8tuplel[regToId[src.data]]}\n"
                             case DT.UINT16 | DT.UINT16MEM:
-                                    ret += f"\t{op} word [{dest.data}], {b16tuple[regToId[src.data]]}\n"
+                                    ret += f"\t{op} [{dest.data}], {b16tuple[regToId[src.data]]}\n"
                             case DT.REGISTER:
                                 destVar = b16tuple[dest.data] if (dosDTSex[src.datatype] == BITS.B16) else b8tupleh[dest.data] if GENASMF.FH in flags else b8tuplel[dest.data]
                                 #(regs, retd, ndest) = deref(regs, asmData(destVar, regs[dest.data].DType, dosDTSex[regs[regToId[resAD(src)]].DType], regs[dest.data].refCount))
@@ -960,7 +960,7 @@ def compile_data(data: list[dict]) -> None:
     elif Com_Mode == COMMODE.DOS:
         buffor_start = buffor_start + ".MODEL SMALL\n.STACK 100h\n"
         buffor_data = buffor_data + ".DATA\n"
-        buffor_code = buffor_code + ".CODE\nstart:\n\tmov ax, @data\n\tmov ds, ax\n"
+        buffor_code = buffor_code + ".CODE\nstart:\n\tmov ax, @data\n\tmov ds, ax\n\tmov es, ax\n"
 
         for ip, x in enumerate(data.tokens):
             regs = (ax, bx, cx, dx, di, si, bp, sp)
@@ -1838,7 +1838,7 @@ def Third_token_parse(data: codeBlock) -> codeBlock:
                 #for i, x in enumerate(con_token_list):
                     #print("con > >", x, index + index_offset + i)
                 code_token_list: list[OpType] = []
-                data.tokens = Shift_codeBlock(data.tokens, index+1, index_offset)
+                data.tokens = Shift_listOps(data.tokens, index+1, index_offset)
                 if is_else:
                     data.tokens[index+2].tokens.append(OpType(OP.JUMP, data.tokens[index+2].tokens[-1].loc+1, ("",-1,-1), f"label{data.tokens[index+4].tokens[-1].loc+2+index_offset}"))
                 data.tokens[index+2].tokens.append(OpType(OP.LABEL, (loc:=data.tokens[index+2].tokens[-1].loc+1), ("",-1,-1), f"label{loc}"))

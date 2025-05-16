@@ -1,5 +1,8 @@
 #mode dos
-u8p test = "Test String\n";
+u8p bin_str = "BIN: ";
+u8p hex_str = "HEX: ";
+u8p dec_str = "DEC: ";
+u8p nl = "\n";
 u8p input = 257 buf;
 u8p bin = 257 buf;
 u8p dec = 18 buf;
@@ -18,7 +21,6 @@ u8 tmp3 = 0;
 \\ input -> bin
 
 while(i > 0){
-    test 9 dos ;
     tmp1 = &input 1 *i ++ ,mem 48-;
     j = 3;
     while(j > 0){
@@ -32,4 +34,30 @@ while(i > 0){
 }
 tmp2 = &bin &input 1+ ,mem 3 * 1 ++;
 *tmp2 36 .mem ;
+&bin_str 9 dos ;
 &bin 1+ 9 dos ;
+
+i = 0;
+tmp2 = &hex;
+tmp3 = 0;
+j = 4;
+
+while(i < &input 1 + ,mem 3 *){
+    tmp1 = &bin i + ,mem 48-;
+    tmp3 = tmp3 tmp1 j * + ;
+    if(j < 2){
+        if(tmp3 > 9){
+            tmp3 = tmp3 8 +;
+        }
+        tmp3 = tmp3 48 +;
+        *tmp2 tmp3 .mem ;
+        j = 4;
+        tmp2 = tmp2 1 +;
+    }
+    i = i 1 +;
+    j = j 1 -;
+}
+*tmp2 36 .mem ;
+&nl 9 dos ;
+&hex_str 9 dos ;
+&hex 9 dos ;

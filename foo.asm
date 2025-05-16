@@ -1,7 +1,10 @@
 .MODEL SMALL
 .STACK 100h
 .DATA
-	vtest db "Test String", 10,"$"
+	vbin_str db "BIN: $"
+	vhex_str db "HEX: $"
+	vdec_str db "DEC: $"
+	vnl db "", 10,"$"
 	vinput db 255,256 dup (0)
 	vbin db 255,256 dup (0)
 	vdec db 16,17 dup (0)
@@ -16,6 +19,7 @@
 start:
 	mov ax, @data
 	mov ds, ax
+	mov es, ax
 ;; -- DOS -- 10 --
 	mov dx, offset vinput
 	mov ah, 10
@@ -27,11 +31,11 @@ start:
 ;; -- MEMREAD --
 	mov si, ax
 	mov ax, [si]
-	mov byte [vi], al
-	mov byte [vj], 0
-	mov byte [vtmp1], 0
+	mov [vi], al
+	mov [vj], 0
+	mov [vtmp1], 0
 ;; -- MUL --
-	mov al, byte [vi]
+	mov al, [vi]
 	mov dl, 3
 	mul dl
 ;; -- ADD --
@@ -39,23 +43,19 @@ start:
 ;; -- ADD --
 	mov si, offset vbin
 	add ax, si
-	mov word [vtmp2], ax
-	mov byte [vtmp3], 0
-label63:
+	mov [vtmp2], ax
+	mov [vtmp3], 0
+label75:
 ;; -- WHILE --
-	mov bl, byte [vi]
+	mov bl, [vi]
 	mov ax, 0
 	cmp bx, ax
-	jg bar67
-	jmp label142
-bar67:
-;; -- DOS -- 9 --
-	mov dx, offset vtest
-	mov ah, 9
-	int 21h
+	jg bar79
+	jmp label150
+bar79:
 ;; -- ADD --
 	mov ax, 1
-	add al, byte [vi]
+	add al, [vi]
 ;; -- ADD --
 	mov si, offset vinput
 	add ax, si
@@ -64,52 +64,52 @@ bar67:
 	mov al, [si]
 ;; -- SUB --
 	sub ax, 48
-	mov byte [vtmp1], al
-	mov byte [vj], 3
-label88:
+	mov [vtmp1], al
+	mov [vj], 3
+label96:
 ;; -- WHILE --
-	mov bl, byte [vj]
+	mov bl, [vj]
 	mov ax, 0
 	cmp bx, ax
-	jg bar92
-	jmp label128
-bar92:
+	jg bar100
+	jmp label136
+bar100:
 ;; -- SUB --
-	mov ax, word [vtmp2]
+	mov ax, [vtmp2]
 	sub ax, 1
-	mov word [vtmp2], ax
+	mov [vtmp2], ax
 ;; -- MOD --
-	mov al, byte [vtmp1]
+	mov al, [vtmp1]
 	mov dl, 2
 	div dl
 	mov al, ah
 	xor ah, ah
 ;; -- ADD --
 	add ax, 48
-	mov byte [vtmp3], al
+	mov [vtmp3], al
 ;; -- MEMWRITE --
-	mov di, word [vtmp2]
+	mov di, [vtmp2]
 	mov si, offset vtmp3
 	mov si, offset vtmp3
 	movsb
 ;; -- DIV --
-	mov al, byte [vtmp1]
+	mov al, [vtmp1]
 	mov dl, 2
 	div dl
 	xor ah, ah
-	mov byte [vtmp1], al
+	mov [vtmp1], al
 ;; -- SUB --
-	mov al, byte [vj]
+	mov al, [vj]
 	sub ax, 1
-	mov byte [vj], al
-	jmp label88
-label128:
+	mov [vj], al
+	jmp label96
+label136:
 ;; -- SUB --
-	mov al, byte [vi]
+	mov al, [vi]
 	sub ax, 1
-	mov byte [vi], al
-	jmp label63
-label142:
+	mov [vi], al
+	jmp label75
+label150:
 ;; -- ADD --
 	mov si, offset vinput
 	mov ax, si
@@ -125,16 +125,122 @@ label142:
 ;; -- ADD --
 	mov si, offset vbin
 	add ax, si
-	mov word [vtmp2], ax
+	mov [vtmp2], ax
 ;; -- MEMWRITE --
 	mov di, [vtmp2]
 	mov word ptr [di], 36
+;; -- DOS -- 9 --
+	mov si, offset vbin_str
+	mov dx, si
+	mov ah, 9
+	int 21h
 ;; -- ADD --
 	mov si, offset vbin
 	mov ax, si
 	add ax, 1
 ;; -- DOS -- 9 --
 	mov dx, ax
+	mov ah, 9
+	int 21h
+	mov [vi], 0
+	mov si, offset vhex
+	mov di, offset vtmp2
+	mov word [di], si
+	mov [vtmp3], 0
+	mov [vj], 4
+label197:
+;; -- WHILE --
+	mov bl, [vi]
+;; -- ADD --
+	mov si, offset vinput
+	mov ax, si
+	add ax, 1
+;; -- MEMREAD --
+	mov si, ax
+	mov ax, [si]
+;; -- MUL --
+	mov dl, 3
+	mul dl
+	cmp bx, ax
+	jl bar194
+	jmp label337
+bar194:
+;; -- ADD --
+	mov si, offset vbin
+	mov ax, si
+	add al, [vi]
+;; -- MEMREAD --
+	mov si, ax
+	mov al, byte [si]
+;; -- SUB --
+	sub ax, 48
+	mov [vtmp1], al
+;; -- MUL --
+	mov al, [vtmp1]
+	mul byte [vj]
+;; -- ADD --
+	add al, [vtmp3]
+	mov [vtmp3], al
+;; -- IF --
+	mov bl, [vj]
+	mov ax, 2
+	cmp bx, ax
+	jl bar216
+	jmp label310
+bar216:
+;; -- IF --
+	mov bl, [vtmp3]
+	mov ax, 9
+	cmp bx, ax
+	jg bar221
+	jmp label274
+bar221:
+;; -- ADD --
+	mov al, [vtmp3]
+	add ax, 8
+	mov [vtmp3], al
+label274:
+;; -- ADD --
+	mov al, [vtmp3]
+	add ax, 48
+	mov [vtmp3], al
+;; -- MEMWRITE --
+	mov di, [vtmp2]
+	mov si, offset vtmp3
+	mov si, offset vtmp3
+	movsb
+	mov [vj], 4
+;; -- ADD --
+	mov ax, [vtmp2]
+	add ax, 1
+	mov [vtmp2], ax
+label310:
+;; -- ADD --
+	mov al, [vi]
+	add ax, 1
+	mov [vi], al
+;; -- SUB --
+	mov al, [vj]
+	sub ax, 1
+	mov [vj], al
+	jmp label197
+label337:
+;; -- MEMWRITE --
+	mov di, [vtmp2]
+	mov word ptr [di], 36
+;; -- DOS -- 9 --
+	mov si, offset vnl
+	mov dx, si
+	mov ah, 9
+	int 21h
+;; -- DOS -- 9 --
+	mov si, offset vhex_str
+	mov dx, si
+	mov ah, 9
+	int 21h
+;; -- DOS -- 9 --
+	mov si, offset vhex
+	mov dx, si
 	mov ah, 9
 	int 21h
 	mov ah, 4Ch
