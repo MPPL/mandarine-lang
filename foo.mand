@@ -1,18 +1,31 @@
 #mode dos
+u8p hexTest = "HEX_TEST\n";
+u8p oct_str = "OCT: ";
 u8p bin_str = "BIN: ";
 u8p hex_str = "HEX: ";
 u8p dec_str = "DEC: ";
-u8p nl = "\n";
 u8p input = 257 buf;
 u8p bin = 257 buf;
 u8p dec = 18 buf;
 u8p hex = 18 buf;
 u8p oct = 18 buf;
+u16 dv = 0;
+u16 dt = 0;
 
 input 10 dos ;
 
-u8 i = &input 1+ ,mem ;
-u8 j = 0;
+u8 i = &input 1 + ,mem 1+ ;
+u8 j = i;
+
+&oct_str 9 dos;
+while(i > 0){
+    &input j + i 2+- ,mem 2 dos ;
+    i = i 1 -;
+}
+10 2 dos ;
+
+i = &input 1+ ,mem ;
+j = 0;
 
 u8 tmp1 = 0;
 u16 tmp2 = &bin i 3 * 1 + + ;
@@ -37,27 +50,127 @@ tmp2 = &bin &input 1+ ,mem 3 * 1 ++;
 &bin_str 9 dos ;
 &bin 1+ 9 dos ;
 
-i = 0;
+i = &input 1 + ,mem 3 * 1-;
 tmp2 = &hex;
 tmp3 = 0;
-j = 4;
+j = 0;
 
-while(i < &input 1 + ,mem 3 *){
-    tmp1 = &bin i + ,mem 48-;
-    tmp3 = tmp3 tmp1 j * + ;
-    if(j < 2){
+while(i > 0){
+    tmp1 = &bin i 1 ++ ,mem 48-;
+    if(tmp1 == 1){
+        tmp1 = 1 j <<;
+    }
+    tmp3 = tmp3 tmp1 + ;
+    if(j == 3){
         if(tmp3 > 9){
-            tmp3 = tmp3 8 +;
+            tmp3 = tmp3 7 +;
         }
         tmp3 = tmp3 48 +;
         *tmp2 tmp3 .mem ;
-        j = 4;
+        tmp3 = 0;
+        j = 0;
         tmp2 = tmp2 1 +;
+    }else{
+        j = j 1 +;
     }
-    i = i 1 +;
-    j = j 1 -;
+    i = i 1 -;
 }
-*tmp2 36 .mem ;
-&nl 9 dos ;
+if(j > 0){
+    if(tmp3 > 9){
+        tmp3 = tmp3 7 +;
+    }
+    tmp3 = tmp3 48 +;
+    *tmp2 tmp3 .mem ;
+    tmp3 = 0;
+    tmp2 = tmp2 1 +;
+}
+10 2 dos;
 &hex_str 9 dos ;
-&hex 9 dos ;
+i = 0;
+tmp1 = &hex i+ ,mem ;
+
+while(tmp1 > 0){
+    i = i 1+;
+    tmp1 = &hex i+ ,mem ;
+}
+while(i > 0){
+    i = i 1-;
+    tmp1 = &hex i+ ,mem ;
+    tmp1 2 dos;
+}
+
+\\*tmp2 36 .mem ;
+\\&hex 9 dos ;
+
+i = 0;
+tmp2 = &dec;
+tmp3 = 0;
+j = &input 1+ ,mem 3 *;
+
+10 2 dos;
+&dec_str 9 dos ;
+j = &bin 1+ ,mem 48-;
+if(j == 1){
+    45 2 dos;
+
+    i = 1;
+    j = &input 1+ ,mem 3 * 1-;
+    while(i < &input 1 + ,mem 3 * 1+){
+        tmp1 = &bin i + ,mem 48-;
+        if(tmp1 == 0){
+            dv = dv 1 j << + ;
+        }
+        i = i 1 +;
+        j = j 1 -;
+        if(i > 15){
+            j = i;
+            i = 255;
+        }
+    }
+    dv = dv 1+;
+    tmp1 = 0;
+    while(dv > 0){
+        i = dv 10 %;
+        j = i 48+;
+        dv = dv 10 /;
+        *tmp2 j .mem ;
+        tmp2 = tmp2 1+;
+        tmp1 = tmp1 1+;
+    }
+
+}else{
+    j = &input 1+ ,mem 3 *;
+    while(i < &input 1 + ,mem 3 * 1+){
+        tmp1 = &bin i + ,mem 48-;
+        if(tmp1 == 1){
+            dv = dv 1 j << + ;
+        }
+        i = i 1 +;
+        j = j 1 -;
+        if(i > 15){
+            j = i;
+            i = 255;
+        }
+    }
+    tmp1 = 0;
+    while(dv > 0){
+        i = dv 10 %;
+        j = i 48+;
+        dv = dv 10 /;
+        *tmp2 j .mem ;
+        tmp2 = tmp2 1+;
+        tmp1 = tmp1 1+;
+    }
+}
+i = 0;
+tmp1 = &dec i+ ,mem ;
+
+while(tmp1 > 0){
+    i = i 1+;
+    tmp1 = &dec i+ ,mem ;
+}
+while(i > 0){
+    i = i 1-;
+    tmp1 = &dec i+ ,mem ;
+    tmp1 2 dos;
+}

@@ -142,6 +142,7 @@ class codeBlock:
     type:       CB = CB.COMPILETIME
     tokens:     list[Token | typing.Self] = []
     vars:       dict[str,Var]
+    loc:        int = -1
 
     def __init__(self: typing.Self, id: int = -1, tokens: list[Token] = [], vars: dict[str, Var] = {}):
         self.id = id
@@ -520,18 +521,21 @@ def genAsm(op: str, regs: tuple[Reg,Reg,Reg,Reg,Reg,Reg,Reg,Reg], dest: asmData 
                                 else:
                                     pass
                                 if op == 'mov':
-                                    ret += "\tmovs\n"
+                                    ret += "\tmovsb\n"
                                 else:
                                     ret += f"\t{op} byte [{b16tuple[6]}], byte [{b16tuple[7]}]\n"
                             case DT.REGISTER:
-                                ret += f"\t{op} {b8tupleh[dest.data] if GENASMF.FH in flags else b8tuplel[dest.data]}, byte [{resAD(src)}]\n"
+                                ret += f"\t{op} {b8tupleh[dest.data] if GENASMF.FH in flags else b8tuplel[dest.data]}, {resAD(src)}\n"
                                 regs[dest.data].DType = src.datatype
                                 regs[dest.data].used = GENASMF.FH in flags
                             case DT.REGISTERMEM:
                                 if dest.data != 6:
                                     ret += f"\tmov {b16tuple[6]}, {b16tuple[dest.data]}\n"
                                 ret += f"\tmov {b16tuple[7]}, offset {src.data}\n"
-                                ret += f"\t{op} byte [{b16tuple[6]}], byte [{b16tuple[7]}]\n"
+                                if op == 'mov':
+                                    ret += "\tmovsb\n"
+                                else:
+                                    ret += f"\t{op} byte [{b16tuple[6]}], byte [{b16tuple[7]}]\n"
                     case DT.IMMEDIATE:
                         match dest.datatype:
                             case DT.UINT8 | DT.UINT16 | DT.UINT8MEM | DT.UINT16MEM:
@@ -564,7 +568,10 @@ def genAsm(op: str, regs: tuple[Reg,Reg,Reg,Reg,Reg,Reg,Reg,Reg], dest: asmData 
                                 if src.data != 7:
                                     ret += f"\tmov {b16tuple[7]}, {b16tuple[src.data]}\n"
                                 ret += f"\t{op} {b16tuple[6]}, offset {dest.data}\n"
-                                ret += f"\t{op} byte [{b16tuple[6]}], byte [{b16tuple[7]}]\n"
+                                if op == 'mov':
+                                    ret += "\tmovsb\n"
+                                else:
+                                    ret += f"\t{op} byte [{b16tuple[6]}], byte [{b16tuple[7]}]\n"
                             case DT.REGISTER:
                                 if src.data != 7:
                                     ret += f"\tmov {b16tuple[7]}, {b16tuple[src.data]}\n"
@@ -576,7 +583,10 @@ def genAsm(op: str, regs: tuple[Reg,Reg,Reg,Reg,Reg,Reg,Reg,Reg], dest: asmData 
                                     ret += f"\tmov {b16tuple[7]}, {b16tuple[src.data]}\n"
                                 if dest.data != 6:
                                     ret += f"\tmov {b16tuple[6]}, {b16tuple[dest.data]}\n"
-                                ret += f"\t{op} byte [{b16tuple[6]}], byte [{b16tuple[7]}]\n"
+                                if op == 'mov':
+                                    ret += "\tmovsb\n"
+                                else:
+                                    ret += f"\t{op} byte [{b16tuple[6]}], byte [{b16tuple[7]}]\n"
                     case _:
                         error(Error.COMPILE, f"Unknown datatype for generating assembly", flags = LogFlag.FAIL)
         elif GENASMF.B16 in flags:
@@ -731,7 +741,7 @@ def genAsm(op: str, regs: tuple[Reg,Reg,Reg,Reg,Reg,Reg,Reg,Reg], dest: asmData 
                                     ret += f"\t{op} {b16tuple[7]}, offset {src.data}\n"
                                 else:
                                     pass
-                                ret += f"\t{op} {b16tuple[7]}, offset {src.data}\n"
+                                #ret += f"\t{op} {b16tuple[7]}, offset {src.data}\n"
                                 if op == 'mov':
                                     ret += "\tmovsb\n"
                                 else:
@@ -749,7 +759,10 @@ def genAsm(op: str, regs: tuple[Reg,Reg,Reg,Reg,Reg,Reg,Reg,Reg], dest: asmData 
                                 if dest.data != 6:
                                     ret += f"\tmov {b16tuple[6]}, {b16tuple[dest.data]}\n"
                                 ret += f"\tmov {b16tuple[7]}, offset {src.data}\n"
-                                ret += f"\t{op} {'word' if dest.bits > 8 else 'byte'} [{b16tuple[6]}], byte [{b16tuple[7]}]\n"
+                                if op == 'mov':
+                                    ret += "\tmovsb\n"
+                                else:
+                                    ret += f"\t{op} {'word' if dest.bits > 8 else 'byte'} [{b16tuple[6]}], byte [{b16tuple[7]}]\n"
                     case DT.UINT8MEM:
                         (regs, rett, src) = deref(regs, src)
                         ret += rett
@@ -770,7 +783,7 @@ def genAsm(op: str, regs: tuple[Reg,Reg,Reg,Reg,Reg,Reg,Reg,Reg], dest: asmData 
                                     ret += f"\t{op} {b16tuple[7]}, offset {src.data}\n"
                                 else:
                                     pass
-                                ret += f"\t{op} word [{b16tuple[6]}], {b16tuple[7]}\n"
+                                ret += f"\t{op} [{b16tuple[6]}], {b16tuple[7]}\n"
                             case DT.REGISTER:
                                 if not src.isReg:
                                     ret += f"\t{op} {b16tuple[dest.data]}, offset {src.data}\n"
@@ -805,7 +818,6 @@ def genAsm(op: str, regs: tuple[Reg,Reg,Reg,Reg,Reg,Reg,Reg,Reg], dest: asmData 
                                     pass
                                 ret += f"\t{op} word [{b16tuple[6]}], {b16tuple[7]}\n"
                             case DT.REGISTER:
-                                print(src.data)
                                 if src.isReg:
                                     ret += f"\t{op} {b16tuple[dest.data]}, {resAD(src)}\n"
                                 else:
@@ -871,7 +883,6 @@ def genAsm(op: str, regs: tuple[Reg,Reg,Reg,Reg,Reg,Reg,Reg,Reg], dest: asmData 
                     case DT.REGISTER:
                         srcVar = b16tuple[src.data] if src.bits == BITS.B16 else b8tupleh[src.data] if GENASMF.FH in flags else b8tuplel[src.data]
                         (regs, rett, src) = deref(regs, asmData(srcVar, regs[src.data].DType, src.bits, src.refCount, src.isReg))
-                        print(src, srcVar)
                         ret += rett
                         match dest.datatype:
                             case DT.UINT8 | DT.UINT8MEM:
@@ -883,7 +894,7 @@ def genAsm(op: str, regs: tuple[Reg,Reg,Reg,Reg,Reg,Reg,Reg,Reg], dest: asmData 
                                 #(regs, retd, ndest) = deref(regs, asmData(destVar, regs[dest.data].DType, dosDTSex[regs[regToId[resAD(src)]].DType], regs[dest.data].refCount))
                                 #ret += retd
                                 if rett:
-                                    ret += f"\t{op} {destVar},{'' if dosDTS[regs[regToId[resAD(src)]].DType] > 8 else ' byte'} [{resAD(src)}]\n"
+                                    ret += f"\t{op} {destVar}, [{resAD(src)}]\n"
                                 else:
                                     ret += f"\t{op} {destVar}, {resAD(src)}\n"
                                 regs[regToId[destVar]].DType = src.datatype
@@ -1055,7 +1066,7 @@ def compile_data(data: list[dict]) -> None:
                             b = stack.pop()
                             (regs, op) = genAsm('mov', regs, asmData(0, DT.REGISTER, BITS.B16), b)
                             buffor_code += op
-                        if isinstance(a[0], str):
+                        if isinstance(a.data, str):
                             (regs, op) = genAsm('mov', regs, asmData(2, DT.REGISTER, BITS.B16), a, flags = GENASMF.B8)
                             buffor_code += op
                             (regs, op) = genAsm('shl', regs, asmData(0, DT.REGISTER, BITS.B16), asmData(2, DT.REGISTER, BITS.B8))
@@ -1066,14 +1077,14 @@ def compile_data(data: list[dict]) -> None:
                     else:
                         error(Error.COMPILE, "Not enough arguments in arithmetics", flags = LogFlag.FAIL)
                 case OP.SHR:
-                    buffor_code = buffor_code + ";; -- SHL --\n"
+                    buffor_code = buffor_code + ";; -- SHR --\n"
                     if len(stack) > 0:
                         a = stack.pop()
                         if not ax.used:
                             b = stack.pop()
                             (regs, op) = genAsm('mov', regs, asmData(0, DT.REGISTER, BITS.B16), b)
                             buffor_code += op
-                        if isinstance(a[0], str):
+                        if isinstance(a.data, str):
                             (regs, op) = genAsm('mov', regs, asmData(2, DT.REGISTER, BITS.B16), a, flags = GENASMF.B8)
                             buffor_code += op
                             (regs, op) = genAsm('shr', regs, asmData(0, DT.REGISTER, BITS.B16), asmData(2, DT.REGISTER, BITS.B8))
@@ -1094,10 +1105,10 @@ def compile_data(data: list[dict]) -> None:
                 case OP.EQUAL | OP.GREATER | OP.LESS | OP.GE | OP.LE:
                     if len(stack) == 1:
                         a = stack.pop()
-                        (regs, op) = genAsm('mov', regs, asmData(1, DT.REGISTER, dosDTS[a.datatype]), a)
+                        (regs, op) = genAsm('mov', regs, asmData(1, DT.REGISTER, dosDTS[a.datatype]), a, flags = GENASMF.CD)
                         buffor_code += op
                     elif len(stack) == 0:
-                        (regs, op) = genAsm('mov', regs, asmData(1, DT.REGISTER, BITS.B16), asmData(0, DT.REGISTER, BITS.B16))
+                        (regs, op) = genAsm('mov', regs, asmData(1, DT.REGISTER, BITS.B16), asmData(0, DT.REGISTER, BITS.B16), flags = GENASMF.CD)
                         buffor_code += op
                     else:
                         error(Error.COMPILE, "Unused value or variable in arithmetics", flags = LogFlag.WARNING, exitAfter = False)
@@ -1116,40 +1127,25 @@ def compile_data(data: list[dict]) -> None:
                     state = ComState.NONE
                     match condition:
                         case OP.EQUAL:
-                            if ip - int(x.value[5:]) < -30:
-                                buffor_code = buffor_code + f"\tje bar{ip}\n"
-                                buffor_code = buffor_code + f"\tjmp {x.value}\n"
-                                buffor_code = buffor_code + f"bar{ip}:\n"
-                            else:
-                                buffor_code = buffor_code + f"\tjne {x.value}\n"
+                            buffor_code = buffor_code + f"\tje bar{ip}\n"
+                            buffor_code = buffor_code + f"\tjmp {x.value}\n"
+                            buffor_code = buffor_code + f"bar{ip}:\n"
                         case OP.GREATER:
-                            if ip - int(x.value[5:]) < -30:
-                                buffor_code = buffor_code + f"\tjg bar{ip}\n"
-                                buffor_code = buffor_code + f"\tjmp {x.value}\n"
-                                buffor_code = buffor_code + f"bar{ip}:\n"
-                            else:
-                                buffor_code = buffor_code + f"\tjle {x.value}\n"
+                            buffor_code = buffor_code + f"\tjg bar{ip}\n"
+                            buffor_code = buffor_code + f"\tjmp {x.value}\n"
+                            buffor_code = buffor_code + f"bar{ip}:\n"
                         case OP.LESS:
-                            if ip - int(x.value[5:]) < -30:
-                                buffor_code = buffor_code + f"\tjl bar{ip}\n"
-                                buffor_code = buffor_code + f"\tjmp {x.value}\n"
-                                buffor_code = buffor_code + f"bar{ip}:\n"
-                            else:
-                                buffor_code = buffor_code + f"\tjge {x.value}\n"
+                            buffor_code = buffor_code + f"\tjl bar{ip}\n"
+                            buffor_code = buffor_code + f"\tjmp {x.value}\n"
+                            buffor_code = buffor_code + f"bar{ip}:\n"
                         case OP.GE:
-                            if ip - int(x.value[5:]) < -30:
-                                buffor_code = buffor_code + f"\tjge bar{ip}\n"
-                                buffor_code = buffor_code + f"\tjmp {x.value}\n"
-                                buffor_code = buffor_code + f"bar{ip}:\n"
-                            else:
-                                buffor_code = buffor_code + f"\tjl {x.value}\n"
+                            buffor_code = buffor_code + f"\tjge bar{ip}\n"
+                            buffor_code = buffor_code + f"\tjmp {x.value}\n"
+                            buffor_code = buffor_code + f"bar{ip}:\n"
                         case OP.LE:
-                            if ip - int(x.value[5:]) < -30:
-                                buffor_code = buffor_code + f"\tle bar{ip}\n"
-                                buffor_code = buffor_code + f"\tjmp {x.value}\n"
-                                buffor_code = buffor_code + f"bar{ip}:\n"
-                            else:
-                                buffor_code = buffor_code + f"\tjg {x.value}\n"
+                            buffor_code = buffor_code + f"\tjle bar{ip}\n"
+                            buffor_code = buffor_code + f"\tjmp {x.value}\n"
+                            buffor_code = buffor_code + f"bar{ip}:\n"
                     for x in range(len(regs)):
                         regs[x].used = False
                         regs[x].DType = DT.IMMEDIATE
@@ -1201,6 +1197,8 @@ def compile_data(data: list[dict]) -> None:
                             data.vars[x.value[0]].defined = True
                     stack.append(asmData(data.vars[x.value[0]].name, (n:=data.vars[x.value[0]].type), dosDTS[n], x.value[1]))
                 case OP.SET:
+                    if ComState.VARDEF in state:
+                        error(Error.COMPILE, "trying to set a value before finishing previous `=`", flags = LogFlag.FAIL)
                     state = ComState.VARDEF | ComState.ARITHMETIC
                     stack.pop()
                 case OP.DOS:
@@ -1235,8 +1233,20 @@ def compile_data(data: list[dict]) -> None:
                         (regs, op) = genAsm('mov', regs, asmData(0, DT.REGISTER, BITS.B8), asmData(10, DT.IMMEDIATE, BITS.B8), flags = GENASMF.FH | GENASMF.B8)
                         buffor_code += op
                         buffor_code += "\tint 21h\n"
+                    elif a == 2:
+                        buffor_code += ";; -- DOS -- 2 --\n"
+                        if len(stack) > 0:
+                            b = stack.pop()
+                            (regs, op) = genAsm('mov', regs, asmData(3, DT.REGISTER, BITS.B8), b)
+                            buffor_code += op
+                        else:
+                            (regs, op) = genAsm('mov', regs, asmData(3, DT.REGISTER, BITS.B8), asmData(0, DT.REGISTER, BITS.B16))
+                            buffor_code += op
+                        (regs, op) = genAsm('mov', regs, asmData(0, DT.REGISTER, BITS.B8), asmData(2, DT.IMMEDIATE, BITS.B8), flags = GENASMF.FH | GENASMF.B8)
+                        buffor_code += op
+                        buffor_code += "\tint 21h\n"
                     else:
-                        error(Error.SIMULATE, "only 9 and 10 dos calls are implemented yet")
+                        error(Error.SIMULATE, "only 2, 9, 10 dos calls are implemented yet")
                 case OP.MEMWRITE:
                     buffor_code += ";; -- MEMWRITE --\n"
                     if len(stack) == 1:
@@ -1253,13 +1263,11 @@ def compile_data(data: list[dict]) -> None:
                     if ax.used:
                         (regs, op) = genAsm('mov', regs, asmData(0, DT.REGISTER, BITS.B16, isReg = True), asmData(0, DT.REGISTER, BITS.B16, refCount = -1, isReg = True))
                         buffor_code += op
-                        print(op)
                     elif len(stack) > 0:
                         a = stack.pop()
                         if a.datatype != DT.UINT16MEM and a.datatype != DT.UINT8MEM:
                             error(Error.COMPILE, "Reading from non memory variable")
                         (regs, op) = genAsm('mov', regs, asmData(0, DT.REGISTER, BITS.B16), a)
-                        print(op)
                         buffor_code += op
                     else:
                         error(Error.COMPILE, "MEMREAD DEBUG ERROR, UNKNOWN CAUSE")
@@ -1267,6 +1275,7 @@ def compile_data(data: list[dict]) -> None:
                         #buffor_code += op
                 case OP.COLON:
                     if ComState.VARDEF in state:
+                        buffor_code += f";; -- VARDEF {data.vars[temp1].name} --\n"
                         if len(stack) > 0:
                             a = stack.pop()
                             (regs, op) = genAsm('mov', regs, asmData(data.vars[temp1].name, data.vars[temp1].type, dosDTS[data.vars[temp1].type]), a)
@@ -1683,15 +1692,6 @@ def Shift_listOps(data: list[OpType | codeBlock], since: int, shift: int) -> lis
     index = since
     while index < len(data):
         if data[index].type in OP:
-            if data[index].type == OP.LABEL:
-                x = data[index].value[:5] + str(int(data[index].value[5:]) + shift)
-                indexx = since
-                while indexx > -1:
-                    if data[indexx].type == OP.CONJUMP and data[indexx].value == data[index].value:
-                        data[indexx].value = x
-                        break
-                    indexx -= 1
-                data[index].value = x
             data[index].loc += shift
         elif data[index].type in CB:
             Shift_codeBlock(data[index], 0, shift)
@@ -1704,15 +1704,6 @@ def Shift_codeBlock(data: codeBlock, since: int, shift: int) -> codeBlock:
     index = since
     while index < len(data.tokens):
         if data.tokens[index].type in OP:
-            if data.tokens[index].type == OP.LABEL:
-                x = data.tokens[index].value[:5] + str(int(data.tokens[index].value[5:]) + shift)
-                indexx = since
-                while indexx > -1:
-                    if data.tokens[indexx].type == OP.CONJUMP and data.tokens[indexx].value == data.tokens[index].value:
-                        data.tokens[indexx].value = x
-                        break
-                    indexx -= 1
-                data[index].value = x
             data.tokens[index].loc += shift
         elif data.tokens[index].type in CB:
             Shift_codeBlock(data.tokens[index], 0, shift)
@@ -1720,7 +1711,7 @@ def Shift_codeBlock(data: codeBlock, since: int, shift: int) -> codeBlock:
     
     return data
 
-def Parse_condition_block(data: codeBlock, typeof: OP) -> list[OpType]:
+def Parse_condition_block(data: codeBlock, typeof: OP, conID: int) -> list[OpType]:
 
     # FIX LABELS WHEN TESTING? (idk why the problem is here)
 
@@ -1791,17 +1782,18 @@ def Parse_condition_block(data: codeBlock, typeof: OP) -> list[OpType]:
     if condition is None:
         error(Error.PARSE, "No condition token found", flags = LogFlag.FAIL)
     if typeof == OP.WHILE:
-        return [OpType(OP.LABEL, (loc:=left[0].loc), ("",-1,-1), f"label{loc}")] + Shift_listOps(left + [condition] + right + [OpType(OP.CONJUMP, right[-1].loc+1, ("",-1,-1))], 0, 1)
+        return [OpType(OP.LABEL, (loc:=left[0].loc), ("",-1,-1), f"label{conID}")] + Shift_listOps(left + [condition] + right + [OpType(OP.CONJUMP, right[-1].loc+1, ("",-1,-1))], 0, 1)
     return left + [condition] + right + [OpType(OP.CONJUMP, right[-1].loc+1, ("",-1,-1))]
 
 def Third_token_parse(data: codeBlock) -> codeBlock:
-    
+
     if (n:=OP.COUNT.value) != (m:=37):
         error(Error.ENUM, f"{BOLD_}Exhaustive operation parsing protection in {BOLD_}Third_token_parse{BACK_}", expected = (m,n), flags = LogFlag.FAIL | LogFlag.EXPECTED)
     if (n:=CB.COUNT.value) != (m:=5):
         error(Error.ENUM, f"{BOLD_}Exhaustive codeBlock parsing protection in {BOLD_}Third_token_parse{BACK_}", expected = (m,n), flags = LogFlag.FAIL | LogFlag.EXPECTED)
     index = 0
     index_offset = 0
+    conID = 0
     # DEBUG, I was using it while having a lot of problems with wrong OpType.loc after merging codeBlocks
     #off = 0
     #for i, x in enumerate(data.tokens):
@@ -1822,7 +1814,7 @@ def Third_token_parse(data: codeBlock) -> codeBlock:
                 # return list of tokens
                 # append to list of tokens a conditional jump and (if 'while') label
                 con_token_list: list[OpType] = []
-                con_token_list = Parse_condition_block(data.tokens[index+1], OP.IF)
+                con_token_list = Parse_condition_block(data.tokens[index+1], OP.IF, conID)
                 index_offset += 1
 
                 if data.tokens[index+2].type != CB.CODE:
@@ -1834,24 +1826,24 @@ def Third_token_parse(data: codeBlock) -> codeBlock:
                             error(Error.PARSE, "ELSE - NO CODEBLOCK", flags = LogFlag.FAIL)
                         is_else = True
                 con_token_list[-1].loc = con_token_list[-2].loc+1
-                con_token_list[-1].value = f"label{data.tokens[index+2].tokens[-1].loc+1+index_offset+int(is_else)}"
+                con_token_list[-1].value = f"label{conID}"
                 #for i, x in enumerate(con_token_list):
                     #print("con > >", x, index + index_offset + i)
                 code_token_list: list[OpType] = []
                 data.tokens = Shift_listOps(data.tokens, index+1, index_offset)
                 if is_else:
-                    data.tokens[index+2].tokens.append(OpType(OP.JUMP, data.tokens[index+2].tokens[-1].loc+1, ("",-1,-1), f"label{data.tokens[index+4].tokens[-1].loc+2+index_offset}"))
-                data.tokens[index+2].tokens.append(OpType(OP.LABEL, (loc:=data.tokens[index+2].tokens[-1].loc+1), ("",-1,-1), f"label{loc}"))
+                    data.tokens[index+2].tokens.append(OpType(OP.JUMP, data.tokens[index+2].tokens[-1].loc+1, ("",-1,-1), f"label{conID+1}"))
+                data.tokens[index+2].tokens.append(OpType(OP.LABEL, data.tokens[index+2].tokens[-1].loc+1, ("",-1,-1), f"label{conID}"))
                 code_token_list += data.tokens[index+2].tokens
                 index_offset += 1
                 if is_else:
-                    data.tokens = Shift_codeBlock(data.tokens, index+3, index_offset)
-                    data.tokens[index+4].tokens.append(OpType(OP.LABEL, (loc:=data.tokens[index+4].tokens[-1].loc+1), ("",-1,-1), f"label{loc}"))
+                    data = Shift_codeBlock(data, index+3, index_offset)
+                    data.tokens[index+4].tokens.append(OpType(OP.LABEL, data.tokens[index+4].tokens[-1].loc+1, ("",-1,-1), f"label{conID+1}"))
                     code_token_list += data.tokens[index+4].tokens
                     index_offset += 1
                 #for i, x in enumerate(code_token_list):
                     #print("code > >", x, index + len(con_token_list)+1 + i)
-                
+                conID += 1 + int(is_else)
                 data.tokens.pop(index+1)
                 data.tokens.pop(index+1)
                 if is_else:
@@ -1871,23 +1863,25 @@ def Third_token_parse(data: codeBlock) -> codeBlock:
                 # return list of tokens
                 # append to list of tokens a conditional jump and (if 'while') label
                 con_token_list: list[OpType] = []
-                con_token_list = Parse_condition_block(data.tokens[index+1], OP.WHILE)
+                con_token_list = Parse_condition_block(data.tokens[index+1], OP.WHILE, conID)
                 index_offset += 2
 
                 if data.tokens[index+2].type != CB.CODE:
                     error(Error.PARSE, "codeBlock not a type of code after While keyword")
-                con_token_list[-1].value = f"label{data.tokens[index+2].tokens[-1].loc+2+index_offset}"
+                con_token_list[-1].value = f"label{conID+1}"
                 #for i, x in enumerate(con_token_list):
                     #print("con > >", x, index + index_offset + i)
                 code_token_list: list[OpType] = []
                 data.tokens = Shift_listOps(data.tokens, index+1, index_offset)
-                data.tokens[index+2].tokens.append(OpType(OP.JUMP, data.tokens[index+2].tokens[-1].loc+1, ("",-1,-1), f"label{con_token_list[0].loc}"))
-                data.tokens[index+2].tokens.append(OpType(OP.LABEL, (loc:=data.tokens[index+2].tokens[-1].loc+1), ("",-1,-1), f"label{loc}"))
+                data.tokens[index+2].tokens.append(OpType(OP.JUMP, data.tokens[index+2].tokens[-1].loc+1, ("",-1,-1), f"label{conID}"))
+                data.tokens[index+2].tokens.append(OpType(OP.LABEL, (loc:=data.tokens[index+2].tokens[-1].loc+1), ("",-1,-1), f"label{conID+1}"))
                 code_token_list += data.tokens[index+2].tokens
                 index_offset += 2
                 #for i, x in enumerate(code_token_list):
                     #print("code > >", x, index + len(con_token_list)+1 + i)
                 
+                conID += 2
+
                 data.tokens.pop(index+1)
                 data.tokens.pop(index+1)
                 data.tokens = Shift_listOps(data.tokens, index, index_offset)
